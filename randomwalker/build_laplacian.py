@@ -15,8 +15,8 @@ def build_laplacian2D(elap0, size):
     elap = np.zeros(num_elements_lap)
 
     # lap_index and off diagonal lap index
-    i_ind, j_ind = (np.zeros(num_elements_lap, dtype=np.int),
-                    np.zeros(num_elements_lap, dtype=np.int))
+    i_ind, j_ind = (np.zeros(num_elements_lap, dtype=int),
+                    np.zeros(num_elements_lap, dtype=int))
 
     cout, sk = 0, 1
     for i in range(size[0]):

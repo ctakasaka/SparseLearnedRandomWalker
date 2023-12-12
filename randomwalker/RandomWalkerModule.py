@@ -12,7 +12,6 @@ class RandomWalker(nn.Module):
         max_backprop: Compute the loss only on the absolute maximum
         """
         super(RandomWalker, self).__init__()
-        self.rw = RW2D
         self.num_grad = num_grad
         self.max_backprop = max_backprop
 
@@ -23,10 +22,10 @@ class RandomWalker(nn.Module):
         """
         out_probabilities = []
         for batch in range(e.size(0)):
-            out_probabilities_ = self.rw(self.num_grad, self.max_backprop)(e[batch].cpu(), seeds[batch])
+            out_probabilities_ = RW2D.apply(e[batch].cpu(), seeds[batch], self.num_grad, self.max_backprop)
 
             out_probabilities_ = torch.transpose(out_probabilities_, 0, 1)
-            out_probabilities_ = out_probabilities_.view(1, -1, seeds.size(1), seeds.size(2))
+            out_probabilities_ = out_probabilities_.view(1, -1, seeds.size(1), seeds.size(2)).contiguous()
             out_probabilities.append(out_probabilities_)
 
         return out_probabilities

@@ -76,7 +76,7 @@ def sparse_pm(seeds):
     """
     k = np.where(seeds.ravel() != 0)[0]
     i_ind, j_ind = np.arange(k.shape[0]), seeds.ravel()[k] - 1
-    val = np.ones_like(k, dtype=np.float)
+    val = np.ones_like(k, dtype=float)
     return csc_matrix((val, (i_ind, j_ind)), shape=(k.shape[0], j_ind.max() + 1))
 
 
