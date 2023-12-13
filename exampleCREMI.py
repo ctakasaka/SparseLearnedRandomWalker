@@ -3,6 +3,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
+from unet.unet import UNet
 import os
 
 if not os.path.exists('results'):
@@ -49,6 +50,9 @@ if __name__ == '__main__':
     size = (128, 128)
     datadir = "data/"
 
+    # Init the UNet
+    unet = UNet(1, 32, 2)
+
     # Init the random walker modules
     rw = RandomWalker(1000, max_backprop=True)
 
@@ -56,10 +60,9 @@ if __name__ == '__main__':
     raw = torch.load(datadir + "raw.pytorch")
     target = torch.load(datadir + "target.pytorch")
     seeds = torch.load(datadir + "seeds.pytorch")
-    diffusivities = torch.zeros(batch_size, 2, size[0], size[1], requires_grad=True)
 
     # Init optimizer
-    optimizer = torch.optim.Adam([diffusivities], lr=0.9)
+    optimizer = torch.optim.Adam(unet.parameters(), lr=0.01)
 
     # Loss has to been wrapped in order to work with random walker algorithm
     loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
@@ -67,6 +70,8 @@ if __name__ == '__main__':
     # Main overfit loop
     for it in range(iterations + 1):
         optimizer.zero_grad()
+
+        diffusivities = unet(raw.unsqueeze(0))
 
         # Diffusivities must be positive
         net_output = torch.sigmoid(diffusivities)
