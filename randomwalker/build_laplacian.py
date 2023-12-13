@@ -3,8 +3,13 @@
 import numpy as np
 from numba import jit
 
+from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+import warnings
 
-@jit(cache=True)
+warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
+
+@jit(cache=True, nopython=False)
 def build_laplacian2D(elap0, size):
     """
     lap0: Graph weights elements, must be (num pixels, 2)
