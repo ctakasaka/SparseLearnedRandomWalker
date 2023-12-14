@@ -1,5 +1,6 @@
 from randomwalker.RandomWalkerModule import RandomWalker
 import torch
+from datapreprocessing.target_sparse_sampling import SparseMaskTransform
 import matplotlib.pyplot as plt
 import numpy as np
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
@@ -84,7 +85,8 @@ if __name__ == '__main__':
             output = rw(net_output, seeds)
 
             # Define sparse mask for the loss
-            mask_x, mask_y = torch.bernoulli(subsampling_ratio * torch.ones(128, 128)).nonzero(as_tuple=True)
+            # mask_x, mask_y = torch.bernoulli(subsampling_ratio * torch.ones(128, 128)).nonzero(as_tuple=True)
+            mask_x, mask_y = SparseMaskTransform(subsampling_ratio = subsampling_ratio)(target.squeeze()).nonzero(as_tuple=True)
 
             # Loss and diffusivities update
             output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
