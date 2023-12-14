@@ -10,7 +10,7 @@ if not os.path.exists('results'):
     os.makedirs('results')
 
 
-def make_summary_plot(it, raw, output, net_output, seeds, target):
+def make_summary_plot(it, raw, output, net_output, seeds, target, subsampling_ratio):
     """
     This function create and save a summary figure
     """
@@ -39,53 +39,61 @@ def make_summary_plot(it, raw, output, net_output, seeds, target):
     axarr[1, 1].axis("off")
 
     plt.tight_layout()
-    plt.savefig("./results/%04i.png"%it)
+    if not os.path.exists(f"results/{subsampling_ratio}/"):
+        os.makedirs(f"results/{subsampling_ratio}/")
+    plt.savefig(f"./results/{subsampling_ratio}/{it}.png")
     plt.close()
 
 
 if __name__ == '__main__':
     # Init parameters
     batch_size = 1
-    iterations = 60
+    iterations = 50
     size = (128, 128)
     datadir = "data/"
 
-    # Init the UNet
-    unet = UNet(1, 32, 2)
+    subsampling_ratios = [1.0, 0.5, 0.1, 0.05, 0.01]
+    for subsampling_ratio in subsampling_ratios:
+        # Init the UNet
+        unet = UNet(1, 32, 2)
 
-    # Init the random walker modules
-    rw = RandomWalker(1000, max_backprop=True)
+        # Init the random walker modules
+        rw = RandomWalker(1000, max_backprop=False)
 
-    # Load data and init
-    raw = torch.load(datadir + "raw.pytorch")
-    target = torch.load(datadir + "target.pytorch")
-    seeds = torch.load(datadir + "seeds.pytorch")
+        # Load data and init
+        raw = torch.load(datadir + "raw.pytorch")
+        target = torch.load(datadir + "target.pytorch")
+        seeds = torch.load(datadir + "seeds.pytorch")
 
-    # Init optimizer
-    optimizer = torch.optim.Adam(unet.parameters(), lr=0.01)
+        # Init optimizer
+        optimizer = torch.optim.Adam(unet.parameters(), lr=0.01)
 
-    # Loss has to been wrapped in order to work with random walker algorithm
-    loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
+        # Loss has to been wrapped in order to work with random walker algorithm
+        loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
 
-    # Main overfit loop
-    for it in range(iterations + 1):
-        optimizer.zero_grad()
+        # Main overfit loop
+        for it in range(iterations + 1):
+            optimizer.zero_grad()
 
-        diffusivities = unet(raw.unsqueeze(0))
+            diffusivities = unet(raw.unsqueeze(0))
 
-        # Diffusivities must be positive
-        net_output = torch.sigmoid(diffusivities)
+            # Diffusivities must be positive
+            net_output = torch.sigmoid(diffusivities)
 
-        # Random walker
-        output = rw(net_output, seeds)
+            # Random walker
+            output = rw(net_output, seeds)
 
-        # Loss and diffusivities update
-        output_log = [torch.log(o) for o in output]
-        l = loss(output_log, target)
-        l.backward(retain_graph=True)
-        optimizer.step()
+            # Define sparse mask for the loss
+            mask_x, mask_y = torch.bernoulli(subsampling_ratio * torch.ones(128, 128)).nonzero(as_tuple=True)
 
-        # Summary
-        if it % 5 == 0:
-            print("Iteration: ", it, " Loss: ", l.item())
-            make_summary_plot(it, raw, output, net_output, seeds, target)
+            # Loss and diffusivities update
+            output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
+
+            l = loss(output_log, target[:, :, mask_x, mask_y])
+            l.backward(retain_graph=True)
+            optimizer.step()
+
+            # Summary
+            if it % 5 == 0:
+                print("Iteration: ", it, " Loss: ", l.item())
+                make_summary_plot(it, raw, output, net_output, seeds, target, subsampling_ratio)
