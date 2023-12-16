@@ -4,8 +4,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-import matplotlib.pyplot as plt
-
 # raw & segmentation combined dataset object
 class CremiSegmentationDataset(Dataset):
 
