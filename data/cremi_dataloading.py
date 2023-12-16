@@ -11,8 +11,6 @@ class CremiSegmentationDataset(Dataset):
     cremi_file = CremiFile(cremi_location, "r")
     self.raw = torch.from_numpy(np.array(cremi_file.read_raw().data)).to(torch.float64)
     self.seg = torch.from_numpy(np.array(cremi_file.read_neuron_ids().data).astype(np.int64))
-    # self.raw = cremi_file.read_raw().data
-    # self.seg = cremi_file.read_neuron_ids().data
 
     self.transform = transform
     self.target_transform = target_transform
@@ -22,9 +20,6 @@ class CremiSegmentationDataset(Dataset):
   
   def __getitem__(self, idx):
 
-    # may need to cast to tensor earlier, unsure as of now
-    # raw_neurons = torch.from_numpy(self.raw.data[idx]).to(torch.float64).unsqueeze(0)
-    # seg_neurons = torch.from_numpy(self.seg.data[idx].astype(np.int64)).unsqueeze(0)
     raw_neurons = self.raw[idx].unsqueeze(0)
     seg_neurons = self.seg[idx].unsqueeze(0)
 
