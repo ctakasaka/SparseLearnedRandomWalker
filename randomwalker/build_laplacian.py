@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from numba import jit
+from numba import jit, int64
 
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
@@ -20,8 +20,8 @@ def build_laplacian2D(elap0, size):
     elap = np.zeros(num_elements_lap)
 
     # lap_index and off diagonal lap index
-    i_ind, j_ind = (np.zeros(num_elements_lap, dtype=int),
-                    np.zeros(num_elements_lap, dtype=int))
+    i_ind, j_ind = (np.zeros(num_elements_lap, dtype=int64),
+                    np.zeros(num_elements_lap, dtype=int64))
 
     cout, sk = 0, 1
     for i in range(size[0]):
