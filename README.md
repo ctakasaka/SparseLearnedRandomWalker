@@ -4,6 +4,17 @@ Implementation of the LearnedRandomWalker module as described in:
 * [Supplementary Material](https://openaccess.thecvf.com/content_CVPR_2019/supplemental/Cerrone_End-To-End_Learned_Random_CVPR_2019_supplemental.pdf)  
 * [CVPR2019 Poster](./data/cvpr19_LRW_poster.pdf)
 
+## Data Loading:
+Enter the data directory and run the command:
+```
+python setup.py install
+```
+
+This will add the "cremi" dataset package to your Python path. To test the install,
+```
+python exampleDataloader.py
+```
+
 ## Data processing:
 The results reported in the paper are based on a modified version of the [CREMI](https://cremi.org/) challenge dataset.
 
