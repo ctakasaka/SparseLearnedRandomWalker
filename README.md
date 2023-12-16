@@ -5,7 +5,7 @@ Implementation of the LearnedRandomWalker module as described in:
 * [CVPR2019 Poster](./data/cvpr19_LRW_poster.pdf)
 
 ## Data Loading:
-Enter the data directory and run the command:
+After downloading Cremi data into the data directory, enter the data directory and run the command:
 ```
 python setup.py install
 ```
