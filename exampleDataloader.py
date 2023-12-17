@@ -30,12 +30,13 @@ print(f"Dataloader should have a length of 125 / 25: {len(train_dataloader)}")
 figure = plt.figure(figsize=(8, 8))
 cols, rows = 2, 2
 for i in range(1, cols * rows + 1):
-    sample_idx = torch.randint(len(train_dataset), size=(1,)).item()
+    # sample_idx = torch.randint(len(train_dataset), size=(1,)).item()
+    sample_idx = i
     img, segmentation, mask = train_dataset[sample_idx]
     figure.add_subplot(rows, cols, i)
     plt.axis("off")
     plt.imshow(img.squeeze(), cmap="gray")
     plt.imshow(segmentation.squeeze(), alpha=0.4, vmin=-3, cmap="prism_r")
     ## can see the subsampled mask with this line
-    # plt.imshow(mask.squeeze(), alpha=0.4, vmin=-3, cmap="prism_r")
+    # plt.imshow(mask.squeeze(), alpha=0.6, vmin=-3, cmap="prism_r")
 plt.show()

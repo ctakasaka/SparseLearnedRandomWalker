@@ -10,13 +10,16 @@ class CremiSegmentationDataset(Dataset):
 
   def __init__(self, cremi_location, transform=None, target_transform=None, subsampling_ratio=0.1):
     cremi_file = CremiFile(cremi_location, "r")
-    self.raw = torch.from_numpy(np.array(cremi_file.read_raw().data)).to(torch.float64)
+    self.raw = torch.from_numpy(np.array(cremi_file.read_raw().data)).unsqueeze(1).to(torch.float64)
     # must be numpy array to allow translation to byte-string
     self.seg = np.array(cremi_file.read_neuron_ids().data).astype(np.int64)
     # maybe temporary, maybe forever
-    self.mask = generateSparseMasks(self.seg, subsampling_ratio)
+    self.mask = generateSparseMasks(self.seg, subsampling_ratio).unsqueeze(1)
     # now cast segmentation truths to tensor
-    self.seg = torch.from_numpy(self.seg)
+    self.seg = torch.from_numpy(self.seg).unsqueeze(1)
+
+    # close hdf file
+    cremi_file.close()
 
     self.transform = transform
     self.target_transform = target_transform
@@ -26,9 +29,9 @@ class CremiSegmentationDataset(Dataset):
   
   def __getitem__(self, idx):
 
-    raw_neurons = self.raw[idx].unsqueeze(0)
-    seg_neurons = self.seg[idx].unsqueeze(0)
-    sample_mask = self.mask[idx].unsqueeze(0)
+    raw_neurons = self.raw[idx]
+    seg_neurons = self.seg[idx]
+    sample_mask = self.mask[idx]
 
     if self.transform:
       raw_neurons = self.transform(raw_neurons)
