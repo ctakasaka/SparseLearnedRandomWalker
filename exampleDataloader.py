@@ -39,4 +39,4 @@ for i in range(1, cols * rows + 1):
 plt.show()
 
 # printing size of raw data tensor from dataloader batch
-print(next(iter(train_dataloader)).shape)
+print(next(iter(train_dataloader))[0].shape)
