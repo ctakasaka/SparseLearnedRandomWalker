@@ -1,5 +1,5 @@
-from cremi.io import CremiFile
-from .data_util import generateSparseMasks
+import h5py
+from .dataUtil import generate_sparse_masks, Volume
 
 import numpy as np
 import torch
@@ -9,17 +9,21 @@ from torch.utils.data import Dataset, DataLoader
 class CremiSegmentationDataset(Dataset):
 
   def __init__(self, cremi_location, transform=None, target_transform=None, subsampling_ratio=0.1):
-    cremi_file = CremiFile(cremi_location, "r")
-    self.raw = torch.from_numpy(np.array(cremi_file.read_raw().data)).unsqueeze(1).to(torch.float64)
+
+    cremi_hdf = h5py.File(cremi_location, "r")
+    raw_dataset = Volume(cremi_hdf["/volumes/raw"])
+    self.raw = torch.from_numpy(np.array(raw_dataset.data)).unsqueeze(1).to(torch.float64)
+
+    seg_dataset = Volume(cremi_hdf["/volumes/labels/neuron_ids"])
     # must be numpy array to allow translation to byte-string
-    self.seg = np.array(cremi_file.read_neuron_ids().data).astype(np.int64)
+    self.seg = np.array(seg_dataset.data).astype(np.int64)
     # maybe temporary, maybe forever
-    self.mask = generateSparseMasks(self.seg, subsampling_ratio).unsqueeze(1)
+    self.mask = generate_sparse_masks(self.seg, subsampling_ratio).unsqueeze(1)
     # now cast segmentation truths to tensor
     self.seg = torch.from_numpy(self.seg).unsqueeze(1)
 
     # close hdf file
-    cremi_file.close()
+    cremi_hdf.close()
 
     self.transform = transform
     self.target_transform = target_transform

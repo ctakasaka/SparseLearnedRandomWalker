@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
-from data.cremi_dataloading import CremiSegmentationDataset
+from data.cremiDataloading import CremiSegmentationDataset
 
 import matplotlib.pyplot as plt
 
