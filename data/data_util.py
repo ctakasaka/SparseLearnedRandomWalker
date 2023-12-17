@@ -22,8 +22,13 @@ def generateSparseMasks(gt_segmentation, subsampling_ratio=0.1):
     obs_hash = xxhash.xxh3_64(segmentation.tobytes()).hexdigest().upper()
     # update random seed to get same pixel mask every time
     random.seed(obs_hash)
+    # can generate an arbitrary int here
+    np_seed = random.randrange(0, 1024, 1)
+    np.random.seed(np_seed)
     # sample and create the mask
-    sampled_indices = random.sample(range(num_elements), num_samples)
+    sampled_indices = np.random.choice(np.arange(sparse_target.shape[1]), 
+                               replace=False, 
+                               size=int(sparse_target.shape[1] * subsampling_ratio))
     sparse_target[idx][sampled_indices] = 1
 
   # fix mask shapes & cast to tensor
