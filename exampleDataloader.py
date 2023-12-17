@@ -18,7 +18,7 @@ target_transforms = transforms.Compose([
 ])
 
 # loading in dataset
-train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms)
+train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1)
 
 # setting up dataloader (should give a length of 5, 125 / 25)
 # shuffle should be okay, since the segmentation & raw are tupled now
@@ -31,12 +31,11 @@ figure = plt.figure(figsize=(8, 8))
 cols, rows = 2, 2
 for i in range(1, cols * rows + 1):
     sample_idx = torch.randint(len(train_dataset), size=(1,)).item()
-    img, segmentation = train_dataset[sample_idx]
+    img, segmentation, mask = train_dataset[sample_idx]
     figure.add_subplot(rows, cols, i)
     plt.axis("off")
     plt.imshow(img.squeeze(), cmap="gray")
     plt.imshow(segmentation.squeeze(), alpha=0.4, vmin=-3, cmap="prism_r")
+    ## can see the subsampled mask with this line
+    # plt.imshow(mask.squeeze(), alpha=0.4, vmin=-3, cmap="prism_r")
 plt.show()
-
-# printing size of raw data tensor from dataloader batch
-print(next(iter(train_dataloader))[0].shape)
