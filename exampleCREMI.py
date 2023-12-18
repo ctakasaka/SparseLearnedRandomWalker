@@ -8,6 +8,11 @@ from unet.unet import UNet
 from utils.evaluation import compute_iou
 import time
 import os
+from tqdm import tqdm
+
+# testing CUDA device support
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(device)
 
 if not os.path.exists('results'):
     os.makedirs('results')
@@ -21,7 +26,7 @@ def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, targe
     f.suptitle("RW summary, Iteration: " + repr(it))
 
     axarr[0, 0].set_title("Ground Truth Image")
-    axarr[0, 0].imshow(raw[0].detach().numpy(), cmap="gray")
+    axarr[0, 0].imshow(raw.cpu()[0].detach().numpy(), cmap="gray")
     axarr[0, 0].imshow(target[0, 0].detach().numpy(), alpha=0.6, vmin=-3, cmap="prism_r")
     seeds_listx, seeds_listy = np.where(seeds[0].data != 0)
     axarr[0, 0].scatter(seeds_listy,
@@ -34,7 +39,7 @@ def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, targe
     axarr[0, 0].axis("off")
 
     axarr[0, 1].set_title("LRW output (white seed)")
-    axarr[0, 1].imshow(raw[0].detach().numpy(), cmap="gray")
+    axarr[0, 1].imshow(raw.cpu()[0].detach().numpy(), cmap="gray")
     axarr[0, 1].imshow(np.argmax(output[0][0].detach().numpy(), 0), alpha=0.6, vmin=-3, cmap="prism_r")
     axarr[0, 1].axis("off")
 
@@ -82,24 +87,26 @@ if __name__ == '__main__':
     if not os.path.exists(f"results/{experiment_name}"):
         os.makedirs(f"results/{experiment_name}")
     log_file = open(f"results/{experiment_name}/log.txt", "a+")
-    print(experiment_name, file=log_file)
+    print(experiment_name)
 
     # Init parameters
     batch_size = 1
     iterations = 50
-    size = (128, 128)
+    size = (5, 5)
     datadir = "data/"
 
     # Load data and init
-    raw = torch.load(datadir + "raw.pytorch")
+    raw = torch.load(datadir + "raw.pytorch").to(device)
     target = torch.load(datadir + "target.pytorch")
     seeds = torch.load(datadir + "seeds.pytorch")
+
+    print(target.unique())
 
     num_classes = len(np.unique(target))
 
     subsampling_ratios = [0.01, 0.1, 0.5]
     for subsampling_ratio in subsampling_ratios:
-        print(f"\nSubsampling ratio: {subsampling_ratio}", file=log_file)
+        print(f"\nSubsampling ratio: {subsampling_ratio}")
         # Init the UNet
         unet = UNet(1, 32, 2)
 
@@ -108,6 +115,9 @@ if __name__ == '__main__':
 
         # Init optimizer
         optimizer = torch.optim.Adam(unet.parameters(), lr=0.01)
+
+        # move UNet to device
+        unet = unet.to(device)
 
         # Loss has to been wrapped in order to work with random walker algorithm
         loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
@@ -128,11 +138,11 @@ if __name__ == '__main__':
         # Main overfit loop
         total_time = 0.0
         num_it = 0
-        for it in range(iterations + 1):
+        for it in tqdm(range(iterations + 1)):
             t1 = time.time()
             optimizer.zero_grad()
 
-            diffusivities = unet(raw.unsqueeze(0))
+            diffusivities = unet(raw.unsqueeze(0)).to("cpu")
 
             # Diffusivities must be positive
             net_output = torch.sigmoid(diffusivities)
@@ -142,13 +152,12 @@ if __name__ == '__main__':
                 # Sample random seeds
                 if random_seeding:
                     seeds = sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes)
-
+                print(seeds.unique())
                 # Random walker
                 output = rw(net_output, seeds)
-
                 # Loss and diffusivities update
                 output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
-
+                print(f"Output log: {output_log[0].shape}")
                 l = loss(output_log, target[:, :, mask_x, mask_y])
                 avg_loss += l
 
@@ -165,8 +174,7 @@ if __name__ == '__main__':
                 pred = torch.argmax(output[0], dim=1)
                 iou_score = compute_iou(pred, target[0], num_classes)
                 avg_time = total_time / num_it
-                print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {avg_loss.item()}  mIoU: {iou_score}",
-                      file=log_file)
+                print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {avg_loss.item()}  mIoU: {iou_score}")
                 make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask, subsampling_ratio)
                 total_time = 0.0
                 num_it = 0
