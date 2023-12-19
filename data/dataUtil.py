@@ -41,7 +41,6 @@ def generate_sparse_masks(gt_segmentation, subsampling_ratio=0.1):
 
     # calculate the required number of gt pixels
     num_elements = flat_mask.shape[1]
-    num_samples = int(subsampling_ratio * num_elements)
 
     # sample pixels for each observation
     # yikes, for-loop here to allow resetting of random seed each time...
@@ -56,24 +55,19 @@ def generate_sparse_masks(gt_segmentation, subsampling_ratio=0.1):
         np_seed = random.randrange(0, 1024, 1)
         np.random.seed(np_seed)
 
-        # Define sparse mask for the loss
-        valid_mask = False
-        while not valid_mask:
-            valid_mask = True
+        unique_classes = np.unique(flat_mask[idx])
+        for class_label in unique_classes:
+            class_indices = np.where(flat_mask[idx] == class_label)[0]
+            if len(class_indices) > 0:
+                seed_index = random.choice(class_indices)
+                sparse_target[idx][seed_index] = 1
+        num_samples = int(subsampling_ratio * num_elements) - len(unique_classes)
+        
+        sampled_indices = np.random.choice(np.arange(sparse_target[idx].shape[0]), 
+                               replace=False, 
+                               size=num_samples)
+        sparse_target[idx][sampled_indices] = 1
 
-            # sample and create the mask
-            sampled_indices = np.random.choice(np.arange(sparse_target.shape[1]), 
-                                    replace=False, 
-                                    size=int(sparse_target.shape[1] * subsampling_ratio))
-            sparse_target[idx][sampled_indices] = 1
-            mask_x, mask_y = sparse_target[idx].reshape((gt_segmentation.shape[1], gt_segmentation.shape[2])).nonzero()
-            masked_target = gt_segmentation[idx].squeeze()[mask_x, mask_y]
-
-            num_classes = len(np.unique(gt_segmentation[idx]))
-            for i in range(num_classes):
-                labels_in_region = len(np.where(masked_target == i)[0])
-                if labels_in_region == 0:
-                    valid_mask = True
 
     # fix mask shapes & cast to tensor
     return torch.from_numpy((sparse_target.reshape(data_shape)).astype(np.int64)).to(torch.int8)
