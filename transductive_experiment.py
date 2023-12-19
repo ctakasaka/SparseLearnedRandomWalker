@@ -98,12 +98,12 @@ if __name__ == '__main__':
     args = parse_args()
 
     # Experiment parameters
-    seeds_per_region = 5
+    seeds_per_region = 1
     accumulate_iterations = 1
     # pruned_gradients = False
     # if args.gradients != "all":
     #     pruned_gradients = True
-    experiment_name = f"image-{args.img_idx}"
+    experiment_name = f"image-{args.img_idx}-seeds-{seeds_per_region}"
     if not os.path.exists(f"results/{experiment_name}"):
         os.makedirs(f"results/{experiment_name}")
     log_file = open(f"results/{experiment_name}/log.txt", "a+")
@@ -138,9 +138,6 @@ if __name__ == '__main__':
     gradient_pruned = [True, False]
     
     for subsampling_ratio in subsampling_ratios:
-        
-        
-        
         # Define sparse mask for the loss
         print("Generating mask")
         valid_mask = False
