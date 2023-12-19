@@ -10,6 +10,8 @@ import time
 import os
 import argparse
 
+from tqdm import tqdm
+
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 from data.cremiDataloading import CremiSegmentationDataset
@@ -92,7 +94,7 @@ if __name__ == '__main__':
     args = parse_args()
 
     # Experiment parameters
-    seeds_per_region = 1
+    seeds_per_region = 5
     accumulate_iterations = 1
     pruned_gradients = False
     if args.gradients != "all":
@@ -112,17 +114,16 @@ if __name__ == '__main__':
     # Load data and init
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.FiveCrop(size=(20, 20)),
+        transforms.FiveCrop(size=(128, 128)),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=(20, 20)),
+        transforms.FiveCrop(size=(128, 128)),
     ])
 
     # loading in dataset
     train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, testing=True)
     raw, target, _ = train_dataset[args.img_idx]
     # legacy
-    raw = raw.unsqueeze(0)
     target = target.unsqueeze(0)
     
     print("Data loaded, beginning experiment.")
@@ -133,7 +134,7 @@ if __name__ == '__main__':
     # for subsampling_ratio in subsampling_ratios:
     subsampling_ratio = args.sub_ratio
 
-    print(f"\nSubsampling ratio: {subsampling_ratio}", file=log_file)
+    print(f"\nSubsampling ratio: {subsampling_ratio}")
     # Init the UNet
     unet = UNet(1, 32, 3)
 
@@ -147,6 +148,7 @@ if __name__ == '__main__':
     loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
 
     # Define sparse mask for the loss
+    print("Generating mask")
     valid_mask = False
     while not valid_mask:
         valid_mask = True
@@ -160,12 +162,13 @@ if __name__ == '__main__':
                 valid_mask = False
 
     # generate seeds
+    print("Generating seeds")
     seeds = sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes)
 
     # Main overfit loop
     total_time = 0.0
     num_it = 0
-    for it in range(iterations + 1):
+    for it in tqdm(range(iterations + 1)):
         t1 = time.time()
         optimizer.zero_grad()
 
