@@ -125,6 +125,39 @@ class Trainer:
         plt.savefig(f"./results-full/{subsampling_ratio}/epoch-{epoch_index}/{it}.png")
         plt.close()
 
+    def plot_singular_laplacian(self, it, raw, net_output, seeds, target, mask, subsampling_ratio, epoch_index):
+        """
+        This function create and save a summary figure
+        """
+        f, axarr = plt.subplots(2, 2, figsize=(8, 9.5))
+        f.suptitle("RW summary, Iteration: " + repr(it))
+
+        axarr[0, 0].set_title("Ground Truth Image")
+        axarr[0, 0].imshow(raw[0].detach().numpy(), cmap="gray")
+        axarr[0, 0].imshow(target[0, 0].detach().numpy(), alpha=0.6, vmin=-3, cmap="prism_r")
+        seeds_listx, seeds_listy = np.where(seeds[0].data != 0)
+        axarr[0, 0].scatter(seeds_listy,
+                            seeds_listx, c="r")
+        axarr[0, 0].axis("off")
+
+        mask_x, mask_y = np.where(mask != 0)
+        axarr[0, 0].scatter(mask_y,
+                            mask_x, c="b", s=0.5, marker='o')
+        axarr[0, 0].axis("off")
+
+        axarr[1, 0].set_title("Vertical Diffusivities")
+        axarr[1, 0].imshow(net_output[0, 0].detach().numpy(), cmap="gray")
+        axarr[1, 0].axis("off")
+
+        axarr[1, 1].set_title("Horizontal Diffusivities")
+        axarr[1, 1].imshow(net_output[0, 1].detach().numpy(), cmap="gray")
+        axarr[1, 1].axis("off")
+
+        plt.tight_layout()
+        if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/"):
+            os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/")
+        plt.savefig(f"./results-full/{subsampling_ratio}/epoch-{epoch_index}/singular_{it}.png")
+        plt.close()
     
     def sample_seeds(self,seeds_per_region, target, masked_target, mask_x, mask_y, num_classes):
         seeds = torch.zeros_like(target.squeeze())
@@ -217,10 +250,9 @@ class Trainer:
                         valid_output = True
                     except:
                         print("Singular Laplacian. Resampling seeds!")
-                        print(total_loss)
-                        self.make_summary_plot(9000+count, images[0], output, net_output, seeds, targets, mask, subsampling_ratio,epoch_index)
-                        seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
-                        count+=1
+                        self.plot_singular_laplacian(it, images[0], net_output, seeds, targets, mask,
+                                                     subsampling_ratio, epoch_index)
+                        seeds = self.sample_seeds(5, targets, masked_targets, mask_x, mask_y, num_classes)
 
                 # Loss and diffusivities update
                 output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
