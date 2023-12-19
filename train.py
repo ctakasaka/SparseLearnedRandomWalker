@@ -96,13 +96,11 @@ class Trainer:
                 segmentation = batch[1]
                 subsample_mask = batch[2]
 
-                print(segmentation[0].unique())
-
                 # seed generation
                 # TODO: Remake seed_sampling function for batches
                 # mask_x, mask_y = subsample_mask.nonzero(as_tuple=True)
                 # masked_target = images.squeeze()[mask_x, mask_y]
-                sub_segmentation = (segmentation * subsample_mask).squeeze()
+                sub_segmentation = (segmentation+1 * subsample_mask).squeeze()
 
                 self.optimizer.zero_grad()
 
@@ -116,7 +114,6 @@ class Trainer:
                 output = self.rw(net_output, sub_segmentation)
                 # Loss and diffusivities update
                 output_log = [torch.log(o).reshape((1,o.shape[1], -1)) for o in output]
-                print(output_log[0].shape)
                 # output_log = []
                 # target_selected = []
                 # # for idx, o in enumerate(output):
@@ -131,8 +128,11 @@ class Trainer:
                     self.optimizer.step()
 
                 # TODO: fix this!
-                pred_masks = torch.argmax(output[0], dim=1).to(torch.float32)
-                iou_score = compute_iou(pred_masks.detach().cpu(), segmentation.detach().cpu())
+                iou_score = 0.
+                for idx, o in enumerate(output):
+                    num_classes = segmentation[idx].unique().shape[0]
+                    pred_masks = torch.argmax(o, dim=1).to(torch.float32)
+                    iou_score = compute_iou(pred_masks.detach().cpu(), segmentation[idx].detach().cpu(), num_classes)
 
                 total_loss += loss.item()
                 total_iou += iou_score
@@ -189,21 +189,21 @@ def main(args):
     # Create datasets and dataloaders for training and validation
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.FiveCrop(size=(60, 60)),
+        transforms.FiveCrop(size=(100, 100)),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=(60, 60)),
+        transforms.FiveCrop(size=(100, 100)),
     ])
 
     # loading in dataset
-    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, testing=True)
+    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, testing=False)
     valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, testing=True)
 
     # loader_args = dict(batch_size=args.batch_size, num_workers=os.cpu_count(), pin_memory=True)
     # train_dataloader = DataLoader(train_dataset, shuffle=True, **loader_args)
     # valid_dataloader = DataLoader(valid_dataset, shuffle=False, **loader_args)
-    train_dataloader = DataLoader(train_dataset, shuffle=False, batch_size=2)
-    valid_dataloader = DataLoader(valid_dataset, shuffle=False, batch_size=2)
+    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=4)
+    valid_dataloader = DataLoader(valid_dataset, shuffle=False, batch_size=4)
 
     print("Dataset loaded successfully")
 

@@ -99,8 +99,9 @@ if __name__ == '__main__':
     raw = torch.load(datadir + "raw.pytorch").to(device)
     target = torch.load(datadir + "target.pytorch")
     seeds = torch.load(datadir + "seeds.pytorch")
-
+    
     print(target.unique())
+    print(seeds.unique())
 
     num_classes = len(np.unique(target))
 
