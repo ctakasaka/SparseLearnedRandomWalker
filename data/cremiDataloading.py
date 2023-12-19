@@ -19,26 +19,27 @@ class CremiSegmentationDataset(Dataset):
     self.raw = torch.from_numpy(np.array(raw_dataset.data)).unsqueeze(1).to(torch.float)
 
     seg_dataset = Volume(cremi_hdf["/volumes/labels/neuron_ids"])
-    # must be numpy array to allow translation to byte-string
     self.seg = np.array(seg_dataset.data).astype(np.int64)
-    # maybe temporary, maybe forever
-    self.mask = generate_sparse_masks(self.seg, subsampling_ratio).unsqueeze(1)
-    # now cast segmentation truths to tensor
     self.seg = torch.from_numpy(self.seg)
 
     crop_idx = 4
     if not self.testing:
-      rng = np.random.default_rng()
-      crop_idx = rng.integers(4, size=1)[0]
+      # rng = np.random.default_rng()
+      # crop_idx = rng.integers(4, size=1)[0]
+      crop_idx = 2
 
     if self.transform:
       self.raw = self.transform(self.raw)
       self.raw = self.raw[crop_idx]
     if self.target_transform:
       self.seg  = self.target_transform(self.seg)
-      self.mask = self.target_transform(self.mask)
       self.seg  = self.seg[crop_idx]
-      self.mask = self.mask[crop_idx]
+
+    self.seg = self.seg.numpy().astype(np.int64)
+    # maybe temporary, maybe forever
+    self.mask = generate_sparse_masks(self.seg, subsampling_ratio).unsqueeze(1)
+    # now cast segmentation truths to tensor
+    self.seg = torch.from_numpy(self.seg)
 
     # re-value segmentation targets for efficiency
     for idx in range(self.seg.shape[0]):
