@@ -148,6 +148,7 @@ class Trainer:
     def _process_epoch(self, dataloader: DataLoader, is_training: bool, epoch_index: int):
         phase = "train" if is_training else "valid"
         subsampling_ratio = self.options['subsampling_ratio']
+        seeds_per_region = self.options['seeds_per_region']
         self.model.train(is_training)
         total_loss = 0.0
         total_iou = 0.0
@@ -163,33 +164,52 @@ class Trainer:
             for it, batch in enumerate(tqdm(dataloader)):
                 t1 = time.time()
                 images, targets, masks = batch
-                images = images.to(self.device).to(dtype=torch.float)
-                masks = masks.to(self.device).to(dtype=torch.float)
+                # images = images.to(self.device).to(dtype=torch.float)
+                # masks = masks.to(self.device).to(dtype=torch.float)
+                images = images.to(self.device)
+                masks = masks.to(self.device)
                 targets = targets.to(self.device)
 
                 num_classes = len(np.unique(targets.squeeze()))
 
                 self.optimizer.zero_grad()
                 diffusivities = self.model(images)
-
                 # Diffusivities must be positive
                 net_output = torch.sigmoid(diffusivities)
 
-                valid_mask = False
-                while not valid_mask:
-                    valid_mask = True
-                    mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
-                    mask_x, mask_y = mask.nonzero(as_tuple=True)
-                    masked_targets = targets.squeeze()[mask_x, mask_y]
+                # valid_mask = False
+                # while not valid_mask:
+                #     valid_mask = True
+                #     mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
+                #     mask_x, mask_y = mask.nonzero(as_tuple=True)
+                #     masked_targets = targets.squeeze()[mask_x, mask_y]
 
-                    for i in range(num_classes):
-                        labels_in_region = len(np.where(masked_targets == i)[0])
-                        if labels_in_region == 0:
-                            valid_mask = False
+                #     for i in range(num_classes):
+                #         labels_in_region = len(np.where(masked_targets == i)[0])
+                #         if labels_in_region == 0:
+                #             valid_mask = False
 
-                seeds = self.sample_seeds(5, targets, masked_targets, mask_x, mask_y, num_classes)
+                # seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
 
+                # valid_output = False
+                # while not valid_output:
+                #     try:
+                #         # Random walker
+                #         output = self.rw(net_output, seeds)
+                #         valid_output = True
+                #     except:
+                #         print("Singular Laplacian. Resampling seeds!")
+                #         seeds_copy = seeds
+                #         seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
+                #         print(torch.all(torch.eq(seeds_copy, seeds)).item())
+                
+                mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
+                mask_x, mask_y = mask.nonzero(as_tuple=True)
+                masked_targets = targets.squeeze()[mask_x, mask_y]
+
+                seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
                 valid_output = False
+                count = 0
                 while not valid_output:
                     try:
                         # Random walker
@@ -197,7 +217,10 @@ class Trainer:
                         valid_output = True
                     except:
                         print("Singular Laplacian. Resampling seeds!")
-                        seeds = self.sample_seeds(5, targets, masked_targets, mask_x, mask_y, num_classes)
+                        print(total_loss)
+                        self.make_summary_plot(9000+count, images[0], output, net_output, seeds, targets, mask, subsampling_ratio,epoch_index)
+                        seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
+                        count+=1
 
                 # Loss and diffusivities update
                 output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
@@ -214,7 +237,7 @@ class Trainer:
                 t2 = time.time()
                 total_time += t2-t1
                 num_it += 1
-                if it % 5 == 0:
+                if it % 1 == 0:
                     avg_time = total_time / num_it
                     print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}",file=log_file)
                     self.make_summary_plot(it, images[0], output, net_output, seeds, targets, mask, subsampling_ratio,epoch_index)
@@ -310,7 +333,8 @@ def main(args):
         max_epochs=args.max_epochs,
         patience=args.patience,
         min_delta=args.min_delta,
-        subsampling_ratio = args.subsampling_ratio
+        subsampling_ratio = args.subsampling_ratio,
+        seeds_per_region = args.seeds_per_region
     )
 
     # Create checkpoints folder
@@ -338,7 +362,8 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
     parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3, help='Early stopping min delta')
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
-    parser.add_argument('--subsampling-ratio', type=float, default=0.1, help='Subsampling ratio')
+    parser.add_argument('--subsampling-ratio', dest = "subsampling_ratio",type=float, default=0.1, help='Subsampling ratio')
+    parser.add_argument('--seeds-per-region', dest = "seeds_per_region",type=int, default=1, help='Seeds per Region')
     return parser.parse_args()
 
 
@@ -355,5 +380,6 @@ if __name__ == "__main__":
     logging.info(f"Patience: {args.patience}")
     logging.info(f"Min delta: {args.min_delta}")
     logging.info(f"Load model path: {args.load}")
-
+    logging.info(f"Subsampling Ratio: {args.subsampling_ratio}")
+    logging.info(f"Seeds per Region: {args.seeds_per_region}")
     main(args)
