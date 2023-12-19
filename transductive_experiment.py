@@ -24,13 +24,13 @@ def parse_args():
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2, help='Weight decay')
-    parser.add_argument('--gradients', dest='gradients', type=str, default="all", help='all for no approximation, max for approximation')
+    # parser.add_argument('--gradients', dest='gradients', type=str, default="all", help='all for no approximation, max for approximation')
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
-    parser.add_argument('--subsampling-ratio', dest='sub_ratio', type=float, default=0.1)
+    # parser.add_argument('--subsampling-ratio', dest='sub_ratio', type=float, default=0.1)
 
     return parser.parse_args()
 
-def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask, subsampling_ratio):
+def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, gradient_pruned):
     """
     This function create and save a summary figure
     """
@@ -64,9 +64,13 @@ def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, targe
     axarr[1, 1].axis("off")
 
     plt.tight_layout()
-    if not os.path.exists(f"results/{experiment_name}/{subsampling_ratio}/"):
-        os.makedirs(f"results/{experiment_name}/{subsampling_ratio}/")
-    plt.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{it}.png")
+    gradient_type = 'full'
+    if gradient_pruned:
+        gradient_type = 'pruned'
+
+    if not os.path.exists(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}"):
+        os.makedirs(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}")
+    plt.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/{it}.png")
     plt.close()
 
 def sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes):
@@ -96,10 +100,10 @@ if __name__ == '__main__':
     # Experiment parameters
     seeds_per_region = 5
     accumulate_iterations = 1
-    pruned_gradients = False
-    if args.gradients != "all":
-        pruned_gradients = True
-    experiment_name = f"{args.img_idx}-{args.sub_ratio}-{args.gradients}"
+    # pruned_gradients = False
+    # if args.gradients != "all":
+    #     pruned_gradients = True
+    experiment_name = f"image-{args.img_idx}"
     if not os.path.exists(f"results/{experiment_name}"):
         os.makedirs(f"results/{experiment_name}")
     log_file = open(f"results/{experiment_name}/log.txt", "a+")
@@ -108,7 +112,7 @@ if __name__ == '__main__':
     # Init parameters
     batch_size = 1
     iterations = 50
-    size = (256, 256)
+    size = (128, 128)
     datadir = "data/"
 
     # Load data and init
@@ -130,82 +134,85 @@ if __name__ == '__main__':
 
     num_classes = len(np.unique(target))
 
-    # subsampling_ratios = [0.01, 0.1, 0.5]
-    # for subsampling_ratio in subsampling_ratios:
-    subsampling_ratio = args.sub_ratio
+    subsampling_ratios = [0.01, 0.1, 0.5]
+    gradient_pruned = [True, False]
+    
+    for subsampling_ratio in subsampling_ratios:
+        
+        # Init the UNet
+        unet = UNet(1, 32, 3)
+        
+        # Define sparse mask for the loss
+        print("Generating mask")
+        valid_mask = False
+        while not valid_mask:
+            valid_mask = True
+            mask = SparseMaskTransform(subsampling_ratio=subsampling_ratio)(target.squeeze())
+            mask_x, mask_y = mask.nonzero(as_tuple=True)
+            masked_target = target.squeeze()[mask_x, mask_y]
 
-    print(f"\nSubsampling ratio: {subsampling_ratio}")
-    # Init the UNet
-    unet = UNet(1, 32, 3)
+            for i in range(num_classes):
+                labels_in_region = len(np.where(masked_target == i)[0])
+                if labels_in_region == 0:
+                    valid_mask = False
 
-    # Init the random walker modules
-    rw = RandomWalker(1000, max_backprop=pruned_gradients)
+        # generate seeds
+        print("Generating seeds")
+        seeds = sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes)
 
-    # Init optimizer
-    optimizer = torch.optim.AdamW(unet.parameters(), lr=0.01, weight_decay=args.weight_decay)
+                    
+        for gradient in gradient_pruned:
+            print(f"\n Gradient Pruned: {gradient}, Subsampling ratio: {subsampling_ratio}", file=log_file)
 
-    # Loss has to been wrapped in order to work with random walker algorithm
-    loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
+            # Init the random walker modules
+            rw = RandomWalker(1000, max_backprop=gradient)
 
-    # Define sparse mask for the loss
-    print("Generating mask")
-    valid_mask = False
-    while not valid_mask:
-        valid_mask = True
-        mask = SparseMaskTransform(subsampling_ratio=subsampling_ratio)(target.squeeze())
-        mask_x, mask_y = mask.nonzero(as_tuple=True)
-        masked_target = target.squeeze()[mask_x, mask_y]
+            # Init optimizer
+            optimizer = torch.optim.AdamW(unet.parameters(), lr=0.01, weight_decay=args.weight_decay)
 
-        for i in range(num_classes):
-            labels_in_region = len(np.where(masked_target == i)[0])
-            if labels_in_region == 0:
-                valid_mask = False
-
-    # generate seeds
-    print("Generating seeds")
-    seeds = sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes)
-
-    # Main overfit loop
-    total_time = 0.0
-    num_it = 0
-    for it in tqdm(range(iterations + 1)):
-        t1 = time.time()
-        optimizer.zero_grad()
-
-        diffusivities = unet(raw.unsqueeze(0))
-
-        # Diffusivities must be positive
-        net_output = torch.sigmoid(diffusivities)
-
-        avg_loss = torch.tensor(0.0)
-        for k in range(accumulate_iterations):
-
-            # Random walker
-            output = rw(net_output, seeds)
-
-            # Loss and diffusivities update
-            output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
-
-            l = loss(output_log, target[:, :, mask_x, mask_y])
-            avg_loss += l
-
-        avg_loss /= accumulate_iterations
-        avg_loss.backward(retain_graph=True)
-        optimizer.step()
-
-        t2 = time.time()
-        total_time += t2-t1
-        num_it += 1
-
-        # Summary
-        if it % 5 == 0:
-            pred = torch.argmax(output[0], dim=1)
-            iou_score = compute_iou(pred, target[0], num_classes)
-            avg_time = total_time / num_it
-            print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {avg_loss.item()}  mIoU: {iou_score}",
-                    file=log_file)
-            make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask, subsampling_ratio)
+            # Loss has to been wrapped in order to work with random walker algorithm
+            loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
+            
+            # Main overfit loop
             total_time = 0.0
             num_it = 0
-        print("\n")
+            for it in tqdm(range(iterations + 1)):
+                t1 = time.time()
+                optimizer.zero_grad()
+
+                diffusivities = unet(raw.unsqueeze(0))
+
+                # Diffusivities must be positive
+                net_output = torch.sigmoid(diffusivities)
+
+                avg_loss = torch.tensor(0.0)
+                for k in range(accumulate_iterations):
+
+                    # Random walker
+                    output = rw(net_output, seeds)
+
+                    # Loss and diffusivities update
+                    output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
+
+                    l = loss(output_log, target[:, :, mask_x, mask_y])
+                    avg_loss += l
+
+                avg_loss /= accumulate_iterations
+                avg_loss.backward(retain_graph=True)
+                optimizer.step()
+
+                t2 = time.time()
+                total_time += t2-t1
+                num_it += 1
+
+                # Summary
+                if it % 5 == 0:
+                    pred = torch.argmax(output[0], dim=1)
+                    iou_score = compute_iou(pred, target[0], num_classes)
+                    avg_time = total_time / num_it
+                    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {avg_loss.item()}  mIoU: {iou_score}",
+                            file=log_file)
+                    make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, gradient)
+                    total_time = 0.0
+                    num_it = 0
     os.system(f"say 'Finished running experiment {experiment_name}'")
