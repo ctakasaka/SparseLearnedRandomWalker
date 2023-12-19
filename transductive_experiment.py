@@ -108,16 +108,16 @@ if __name__ == '__main__':
     # Init parameters
     batch_size = 1
     iterations = 50
-    size = (128, 128)
+    size = (256, 256)
     datadir = "data/"
 
     # Load data and init
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.FiveCrop(size=(128, 128)),
+        transforms.FiveCrop(size=size),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=(128, 128)),
+        transforms.FiveCrop(size=size),
     ])
 
     # loading in dataset
