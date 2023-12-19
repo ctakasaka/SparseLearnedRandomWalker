@@ -187,10 +187,17 @@ class Trainer:
                         if labels_in_region == 0:
                             valid_mask = False
 
-                # TODO: get seeds!
                 seeds = self.sample_seeds(5, targets, masked_targets, mask_x, mask_y, num_classes)
-                # Random walker
-                output = self.rw(net_output, seeds)
+
+                valid_output = False
+                while not valid_output:
+                    try:
+                        # Random walker
+                        output = self.rw(net_output, seeds)
+                        valid_output = True
+                    except:
+                        print("Singular Laplacian. Resampling seeds!")
+                        seeds = self.sample_seeds(5, targets, masked_targets, mask_x, mask_y, num_classes)
 
                 # Loss and diffusivities update
                 output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
@@ -199,8 +206,7 @@ class Trainer:
                 if is_training:
                     loss.backward(retain_graph=True)
                     self.optimizer.step()
-                    
-                # TODO: fix this!
+
                 pred_masks = torch.argmax(output[0], dim=1)
                 iou_score = compute_iou(pred_masks.detach().cpu(), targets[0].detach().cpu(), num_classes)
                 total_loss += loss.item()
