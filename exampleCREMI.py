@@ -95,6 +95,8 @@ if __name__ == '__main__':
     target = torch.load(datadir + "target.pytorch")
     seeds = torch.load(datadir + "seeds.pytorch")
 
+    print(raw.shape, target.shape)
+
     num_classes = len(np.unique(target))
 
     subsampling_ratios = [0.01, 0.1, 0.5]
