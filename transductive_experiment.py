@@ -97,7 +97,7 @@ if __name__ == '__main__':
     pruned_gradients = False
     if args.gradients != "all":
         pruned_gradients = True
-    experiment_name = "fixed-seeding"
+    experiment_name = f"{args.img_idx}-{args.sub_ratio}-{args.gradients}"
     if not os.path.exists(f"results/{experiment_name}"):
         os.makedirs(f"results/{experiment_name}")
     log_file = open(f"results/{experiment_name}/log.txt", "a+")
@@ -141,7 +141,7 @@ if __name__ == '__main__':
     rw = RandomWalker(1000, max_backprop=pruned_gradients)
 
     # Init optimizer
-    optimizer = torch.optim.Adam(unet.parameters(), lr=0.01)
+    optimizer = torch.optim.AdamW(unet.parameters(), lr=0.01, weight_decay=args.weight_decay)
 
     # Loss has to been wrapped in order to work with random walker algorithm
     loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
