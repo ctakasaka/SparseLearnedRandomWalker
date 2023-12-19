@@ -139,8 +139,7 @@ if __name__ == '__main__':
     
     for subsampling_ratio in subsampling_ratios:
         
-        # Init the UNet
-        unet = UNet(1, 32, 3)
+        
         
         # Define sparse mask for the loss
         print("Generating mask")
@@ -163,6 +162,9 @@ if __name__ == '__main__':
                     
         for gradient in gradient_pruned:
             print(f"\n Gradient Pruned: {gradient}, Subsampling ratio: {subsampling_ratio}", file=log_file)
+
+            # Init the UNet
+            unet = UNet(1, 32, 3)
 
             # Init the random walker modules
             rw = RandomWalker(1000, max_backprop=gradient)
