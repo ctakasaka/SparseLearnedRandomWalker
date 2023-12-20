@@ -11,7 +11,7 @@ from utils.evaluation import compute_iou
 from typing import Dict
 import matplotlib.pyplot as plt
 
-from notebookUtils import make_summary_plot, sample_seeds
+from utils.notebookUtils import make_summary_plot, sample_seeds
 
 subsampling_ratio = 0.01
 seeds_per_region = 5

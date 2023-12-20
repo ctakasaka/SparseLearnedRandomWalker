@@ -48,4 +48,5 @@ coverage.xml
 
 *.hdf
 results/
+results-full/
 tensorboard/
