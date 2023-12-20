@@ -114,4 +114,6 @@ dependencies:
   - yaml=0.2.5=h7b6447c_0
   - zlib=1.2.13=h5eee18b_0
   - zstd=1.5.5=hc292b87_0
+  - pip:
+      - xxhash==3.4.1
 prefix: /home/kaz/miniconda3/envs/srw
