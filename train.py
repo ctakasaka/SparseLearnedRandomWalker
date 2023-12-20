@@ -305,11 +305,11 @@ def main(args):
     # Create datasets and dataloaders for training and validation
     train_img_dir = Path("./data/train_split/train/img")
     train_mask_dir = Path("./data/train_split/train/mask")
-    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, testing=False)
+    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, split="test")
 
     valid_img_dir = Path("./data/train_split/valid/img")
     valid_mask_dir = Path("./data/train_split/valid/mask")
-    valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, testing=True)
+    valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, split="validation")
 
     loader_args = dict(batch_size=args.batch_size, num_workers=os.cpu_count(), pin_memory=True)
     train_dataloader = DataLoader(train_dataset, shuffle=True, **loader_args)

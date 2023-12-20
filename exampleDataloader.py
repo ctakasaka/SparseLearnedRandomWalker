@@ -21,7 +21,7 @@ target_transforms = transforms.Compose([
 ])
 
 # loading in dataset
-train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, testing=True)
+train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, split="test")
 
 # setting up dataloader
 train_dataloader = DataLoader(train_dataset, batch_size=25, shuffle=True)

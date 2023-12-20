@@ -8,9 +8,9 @@ from torch.utils.data import Dataset, DataLoader
 # raw & segmentation combined dataset object
 class CremiSegmentationDataset(Dataset):
 
-  def __init__(self, cremi_location, transform=None, target_transform=None, subsampling_ratio=0.1, testing=False):
+  def __init__(self, cremi_location, transform=None, target_transform=None, subsampling_ratio=0.1, split="train"):
 
-    self.testing = testing
+    self.split = split
     self.transform = transform
     self.target_transform = target_transform
 
@@ -23,10 +23,10 @@ class CremiSegmentationDataset(Dataset):
     self.seg = torch.from_numpy(self.seg)
 
     crop_idx = 4
-    if not self.testing:
-      # rng = np.random.default_rng()
-      # crop_idx = rng.integers(4, size=1)[0]
+    if self.split == "train":
       crop_idx = 2
+    elif self.split == "test":
+      crop_idx = 1
 
     if self.transform:
       self.raw = self.transform(self.raw)

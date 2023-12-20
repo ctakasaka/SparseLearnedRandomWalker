@@ -13,7 +13,7 @@ seeds_per_region = 5     # number of seeds provided
 
 raw_transforms, target_transforms = generate_transforms(image_size=image_size)
 
-model_path = "checkpoints/models/last_model_20231219_165700_9"
+model_path = "checkpoints/models/001_subsample_unet"
 
 model = UNet(1, 32, 3)
 model.load_state_dict(torch.load(model_path))
@@ -21,7 +21,7 @@ model.eval()
 rw = RandomWalker(1000, max_backprop=True)
 
 # load a test observation
-test_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, testing=True)
+test_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, split="test")
 test_raw, test_segmentation, test_mask = test_dataset[93]
 
 # determine number of segments in the image
