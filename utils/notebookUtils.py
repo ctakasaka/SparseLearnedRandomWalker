@@ -3,12 +3,12 @@ import torch
 import matplotlib.pyplot as plt
 from torchvision import transforms
 
-def make_summary_plot(it, raw, output, net_output, seeds, target, miou, model_subsampling_ratio):
+def make_summary_plot(it, raw, output, net_output, seeds, target, miou, model_subsampling_ratio, image_size):
         """
         This function create and save a summary figure
         """
         f, axarr = plt.subplots(2, 2, figsize=(8, 9.5))
-        f.suptitle(f"Model Pretrained on {model_subsampling_ratio} Subsampling")
+        f.suptitle(f"Model Pretrained on {model_subsampling_ratio} Subsampling (Image size {image_size}x{image_size})")
 
         axarr[0, 0].set_title("Ground Truth Image")
         axarr[0, 0].imshow(raw[0].detach().numpy(), cmap="gray")
