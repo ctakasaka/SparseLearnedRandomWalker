@@ -210,39 +210,12 @@ class Trainer:
                 # Diffusivities must be positive
                 net_output = torch.sigmoid(diffusivities)
 
-                # valid_mask = False
-                # while not valid_mask:
-                #     valid_mask = True
-                #     mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
-                #     mask_x, mask_y = mask.nonzero(as_tuple=True)
-                #     masked_targets = targets.squeeze()[mask_x, mask_y]
-
-                #     for i in range(num_classes):
-                #         labels_in_region = len(np.where(masked_targets == i)[0])
-                #         if labels_in_region == 0:
-                #             valid_mask = False
-
-                # seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
-
-                # valid_output = False
-                # while not valid_output:
-                #     try:
-                #         # Random walker
-                #         output = self.rw(net_output, seeds)
-                #         valid_output = True
-                #     except:
-                #         print("Singular Laplacian. Resampling seeds!")
-                #         seeds_copy = seeds
-                #         seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
-                #         print(torch.all(torch.eq(seeds_copy, seeds)).item())
-                
                 mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
                 mask_x, mask_y = mask.nonzero(as_tuple=True)
                 masked_targets = targets.squeeze()[mask_x, mask_y]
 
                 seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
                 valid_output = False
-                count = 0
                 while not valid_output:
                     try:
                         # Random walker
@@ -252,15 +225,16 @@ class Trainer:
                         print("Singular Laplacian. Resampling seeds!")
                         self.plot_singular_laplacian(it, images[0], net_output, seeds, targets, mask,
                                                      subsampling_ratio, epoch_index)
-                        seeds = self.sample_seeds(5, targets, masked_targets, mask_x, mask_y, num_classes)
+                        seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
 
                 # Loss and diffusivities update
-                output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
+                output_log = [torch.log(o + 1e-10)[:, :, mask_x, mask_y] for o in output]
                 loss = self.loss_fn(output_log, targets[:, :, mask_x, mask_y])
 
                 if is_training:
-                    loss.backward(retain_graph=True)
-                    self.optimizer.step()
+                    with torch.autograd.set_detect_anomaly(True):
+                        loss.backward(retain_graph=True)
+                        self.optimizer.step()
 
                 pred_masks = torch.argmax(output[0], dim=1)
                 iou_score = compute_iou(pred_masks.detach().cpu(), targets[0].detach().cpu(), num_classes)
@@ -269,10 +243,10 @@ class Trainer:
                 t2 = time.time()
                 total_time += t2-t1
                 num_it += 1
-                if it % 1 == 0:
+                if it % 10 == 0:
                     avg_time = total_time / num_it
-                    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}",file=log_file)
-                    self.make_summary_plot(it, images[0], output, net_output, seeds, targets, mask, subsampling_ratio,epoch_index)
+                    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}", file=log_file)
+                    self.make_summary_plot(it, images[0], output, net_output, seeds, targets, mask, subsampling_ratio, epoch_index)
                     total_time = 0.0
                     num_it = 0
 
@@ -365,8 +339,8 @@ def main(args):
         max_epochs=args.max_epochs,
         patience=args.patience,
         min_delta=args.min_delta,
-        subsampling_ratio = args.subsampling_ratio,
-        seeds_per_region = args.seeds_per_region
+        subsampling_ratio=args.subsampling_ratio,
+        seeds_per_region=args.seeds_per_region
     )
 
     # Create checkpoints folder
@@ -394,8 +368,8 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
     parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3, help='Early stopping min delta')
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
-    parser.add_argument('--subsampling-ratio', dest = "subsampling_ratio",type=float, default=0.1, help='Subsampling ratio')
-    parser.add_argument('--seeds-per-region', dest = "seeds_per_region",type=int, default=1, help='Seeds per Region')
+    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5, help='Subsampling ratio')
+    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5, help='Seeds per Region')
     return parser.parse_args()
 
 
