@@ -2,26 +2,30 @@ import os
 import logging
 import argparse
 import torch.nn as nn
+import matplotlib.pyplot as plt
+import time
 from tqdm import tqdm
 from pathlib import Path
 from torchinfo import summary
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torch.utils.data import Dataset, DataLoader
+from data.cremiDataloading import CremiSegmentationDataset
+from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
+from datapreprocessing.target_sparse_sampling import SparseMaskTransform
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
+import numpy as np
 
 import torch
 from unet.unet import UNet
 from randomwalker.RandomWalkerModule import RandomWalker
-from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
 
-# from .data.segmentation_dataset import SegmentationDataset
+# from data.segmentation_dataset import SegmentationDataset
 from utils.evaluation import compute_iou
-from utils.seed_utils import set_seeds
+# from utils.seed_utils import set_seeds
 from typing import Dict
 
-from data.cremiDataloading import CremiSegmentationDataset
-from exampleCREMI import make_summary_plot, sample_seeds
 
 MODEL_SAVE_DIR = Path('checkpoints/models')
 
@@ -66,7 +70,8 @@ class Trainer:
         self.optimizer = optimizer
         self.options = options
 
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = 'cpu'
         logging.info(f'Using device {self.device}')
 
         self.model.to(device=self.device)
@@ -82,65 +87,169 @@ class Trainer:
         self.rw = RandomWalker(options.get('rw_num_grad', 1000),
                                max_backprop=options.get('rw_max_backprop', True))
 
+    def make_summary_plot(self, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, epoch_index):
+        """
+        This function create and save a summary figure
+        """
+        f, axarr = plt.subplots(2, 2, figsize=(8, 9.5))
+        f.suptitle("RW summary, Iteration: " + repr(it))
+
+        axarr[0, 0].set_title("Ground Truth Image")
+        axarr[0, 0].imshow(raw[0].detach().numpy(), cmap="gray")
+        axarr[0, 0].imshow(target[0, 0].detach().numpy(), alpha=0.6, vmin=-3, cmap="prism_r")
+        seeds_listx, seeds_listy = np.where(seeds[0].data != 0)
+        axarr[0, 0].scatter(seeds_listy,
+                            seeds_listx, c="r")
+        axarr[0, 0].axis("off")
+
+        mask_x, mask_y = np.where(mask != 0)
+        axarr[0, 0].scatter(mask_y,
+                            mask_x, c="b", s=0.5, marker='o')
+        axarr[0, 0].axis("off")
+
+        axarr[0, 1].set_title("LRW output (white seed)")
+        axarr[0, 1].imshow(raw[0].detach().numpy(), cmap="gray")
+        axarr[0, 1].imshow(np.argmax(output[0][0].detach().numpy(), 0), alpha=0.6, vmin=-3, cmap="prism_r")
+        axarr[0, 1].axis("off")
+
+        axarr[1, 0].set_title("Vertical Diffusivities")
+        axarr[1, 0].imshow(net_output[0, 0].detach().numpy(), cmap="gray")
+        axarr[1, 0].axis("off")
+
+        axarr[1, 1].set_title("Horizontal Diffusivities")
+        axarr[1, 1].imshow(net_output[0, 1].detach().numpy(), cmap="gray")
+        axarr[1, 1].axis("off")
+
+        plt.tight_layout()
+        if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/"):
+            os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/")
+        plt.savefig(f"./results-full/{subsampling_ratio}/epoch-{epoch_index}/{it}.png")
+        plt.close()
+
+    def plot_singular_laplacian(self, it, raw, net_output, seeds, target, mask, subsampling_ratio, epoch_index):
+        """
+        This function create and save a summary figure
+        """
+        f, axarr = plt.subplots(2, 2, figsize=(8, 9.5))
+        f.suptitle("RW summary, Iteration: " + repr(it))
+
+        axarr[0, 0].set_title("Ground Truth Image")
+        axarr[0, 0].imshow(raw[0].detach().numpy(), cmap="gray")
+        axarr[0, 0].imshow(target[0, 0].detach().numpy(), alpha=0.6, vmin=-3, cmap="prism_r")
+        seeds_listx, seeds_listy = np.where(seeds[0].data != 0)
+        axarr[0, 0].scatter(seeds_listy,
+                            seeds_listx, c="r")
+        axarr[0, 0].axis("off")
+
+        mask_x, mask_y = np.where(mask != 0)
+        axarr[0, 0].scatter(mask_y,
+                            mask_x, c="b", s=0.5, marker='o')
+        axarr[0, 0].axis("off")
+
+        axarr[1, 0].set_title("Vertical Diffusivities")
+        axarr[1, 0].imshow(net_output[0, 0].detach().numpy(), cmap="gray")
+        axarr[1, 0].axis("off")
+
+        axarr[1, 1].set_title("Horizontal Diffusivities")
+        axarr[1, 1].imshow(net_output[0, 1].detach().numpy(), cmap="gray")
+        axarr[1, 1].axis("off")
+
+        plt.tight_layout()
+        if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/"):
+            os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/")
+        plt.savefig(f"./results-full/{subsampling_ratio}/epoch-{epoch_index}/singular_{it}.png")
+        plt.close()
+    
+    def sample_seeds(self,seeds_per_region, target, masked_target, mask_x, mask_y, num_classes):
+        seeds = torch.zeros_like(target.squeeze())
+        if seeds_per_region == 1:
+            seed_indices = np.array([
+                np.random.choice(np.where(masked_target == i)[0]) for i in range(num_classes)
+            ])
+        else:
+            num_seeds = [
+                min(len(np.where(masked_target == i)[0]), seeds_per_region) for i in range(num_classes)
+            ]
+            seed_indices = np.concatenate([
+                np.random.choice(np.where(masked_target == i)[0], num_seeds[i], replace=False)
+                for i in range(num_classes)
+            ])
+        target_seeds = target.squeeze()[mask_x[seed_indices], mask_y[seed_indices]] + 1
+        seeds[mask_x[seed_indices], mask_y[seed_indices]] = target_seeds
+        seeds = seeds.unsqueeze(0)
+        return seeds
+
     def _process_epoch(self, dataloader: DataLoader, is_training: bool, epoch_index: int):
         phase = "train" if is_training else "valid"
+        subsampling_ratio = self.options['subsampling_ratio']
+        seeds_per_region = self.options['seeds_per_region']
         self.model.train(is_training)
         total_loss = 0.0
         total_iou = 0.0
-        loss_type = NHomogeneousBatchLoss(torch.nn.NLLLoss)
-
+        avg_loss = torch.tensor(0.0)
         logging.info(f"Starting {phase} step")
+        total_time = 0.0
+        if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}"):
+            os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}")
+        log_file = open(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/log.txt", "a+")
+        print(f"Epoch {epoch_index}",file=log_file)
         with torch.set_grad_enabled(is_training):
-            for i, batch in enumerate(tqdm(dataloader)):
-                images = batch[0].to(self.device)
-                segmentation = batch[1]
-                subsample_mask = batch[2]
+            num_it = 0
+            for it, batch in enumerate(tqdm(dataloader)):
+                t1 = time.time()
+                images, targets, masks = batch
+                # images = images.to(self.device).to(dtype=torch.float)
+                # masks = masks.to(self.device).to(dtype=torch.float)
+                images = images.to(self.device)
+                masks = masks.to(self.device)
+                targets = targets.to(self.device)
 
-                # seed generation
-                # TODO: Remake seed_sampling function for batches
-                # mask_x, mask_y = subsample_mask.nonzero(as_tuple=True)
-                # masked_target = images.squeeze()[mask_x, mask_y]
-                sub_segmentation = (segmentation+1 * subsample_mask).squeeze()
+                num_classes = len(np.unique(targets.squeeze()))
 
                 self.optimizer.zero_grad()
-
                 diffusivities = self.model(images)
-
                 # Diffusivities must be positive
                 net_output = torch.sigmoid(diffusivities)
 
-                # TODO: get seeds!
-                # Random walker
-                output = self.rw(net_output, sub_segmentation)
+                mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
+                mask_x, mask_y = mask.nonzero(as_tuple=True)
+                masked_targets = targets.squeeze()[mask_x, mask_y]
+
+                seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
+                valid_output = False
+                while not valid_output:
+                    try:
+                        # Random walker
+                        output = self.rw(net_output, seeds)
+                        valid_output = True
+                    except:
+                        print("Singular Laplacian. Resampling seeds!")
+                        self.plot_singular_laplacian(it, images[0], net_output, seeds, targets, mask,
+                                                     subsampling_ratio, epoch_index)
+                        seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
+
                 # Loss and diffusivities update
-                output_log = [torch.log(o).reshape((1,o.shape[1], -1)) for o in output]
-                # output_log = []
-                # target_selected = []
-                # # for idx, o in enumerate(output):
-                # #     mask_x, mask_y = subsample_mask[idx].nonzero(as_tuple=True)
-                # #     output_log.append(torch.log(o)[:, :, mask_x, mask_y])
-                # #     target_selected.append(segmentation[idx, :, mask_x, mask_y])
-                    
-                loss = loss_type(output_log, segmentation.reshape((segmentation.shape[0], segmentation.shape[1], -1)))
+                output_log = [torch.log(o + 1e-10)[:, :, mask_x, mask_y] for o in output]
+                loss = self.loss_fn(output_log, targets[:, :, mask_x, mask_y])
 
                 if is_training:
-                    loss.backward(retain_graph=True)
-                    self.optimizer.step()
+                    with torch.autograd.set_detect_anomaly(True):
+                        loss.backward(retain_graph=True)
+                        self.optimizer.step()
 
-                # TODO: fix this!
-                iou_score = 0.
-                for idx, o in enumerate(output):
-                    num_classes = segmentation[idx].unique().shape[0]
-                    pred_masks = torch.argmax(o, dim=1).to(torch.float32)
-                    iou_score = compute_iou(pred_masks.detach().cpu(), segmentation[idx].detach().cpu(), num_classes)
-
+                pred_masks = torch.argmax(output[0], dim=1)
+                iou_score = compute_iou(pred_masks.detach().cpu(), targets[0].detach().cpu(), num_classes)
                 total_loss += loss.item()
                 total_iou += iou_score
-
-                if i % 1000 == 999:
-                    tb_x = epoch_index * len(dataloader) + i + 1
-                    self.tb_writer.add_scalar(f'{phase}/loss', total_loss / (i + 1), tb_x)
-                    self.tb_writer.add_scalar(f'{phase}/IoU', total_iou / (i + 1), tb_x)
+                t2 = time.time()
+                total_time += t2-t1
+                num_it += 1
+                if it % 10 == 0:
+                    avg_time = total_time / num_it
+                    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}", file=log_file)
+                    self.make_summary_plot(it, images[0], output, net_output, seeds, targets, mask, subsampling_ratio, epoch_index)
+                    total_time = 0.0
+                    num_it = 0
 
         avg_loss = total_loss / len(dataloader)
         avg_iou = total_iou / len(dataloader)
@@ -186,29 +295,28 @@ class Trainer:
 
 
 def main(args):
-    # Create datasets and dataloaders for training and validation
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.FiveCrop(size=(100, 100)),
+        transforms.FiveCrop(size=(128, 128)),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=(100, 100)),
+        transforms.FiveCrop(size=(128, 128)),
     ])
+    # Create datasets and dataloaders for training and validation
+    train_img_dir = Path("./data/train_split/train/img")
+    train_mask_dir = Path("./data/train_split/train/mask")
+    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, testing=False)
 
-    # loading in dataset
-    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, testing=False)
-    valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, testing=True)
+    valid_img_dir = Path("./data/train_split/valid/img")
+    valid_mask_dir = Path("./data/train_split/valid/mask")
+    valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, testing=True)
 
-    # loader_args = dict(batch_size=args.batch_size, num_workers=os.cpu_count(), pin_memory=True)
-    # train_dataloader = DataLoader(train_dataset, shuffle=True, **loader_args)
-    # valid_dataloader = DataLoader(valid_dataset, shuffle=False, **loader_args)
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=4)
-    valid_dataloader = DataLoader(valid_dataset, shuffle=False, batch_size=4)
-
-    print("Dataset loaded successfully")
+    loader_args = dict(batch_size=args.batch_size, num_workers=os.cpu_count(), pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, shuffle=True, **loader_args)
+    valid_dataloader = DataLoader(valid_dataset, shuffle=False, **loader_args)
 
     # Create model, load from state (is possible) and log model summary
-    model = UNet(1, 32, 2)
+    model = UNet(1, 32, 3)
     if args.load:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         state_dict = torch.load(args.load, map_location=device)
@@ -220,22 +328,25 @@ def main(args):
     logging.info(summary(model, input_size=(args.batch_size, *input_shape)))  # dimensions of padded images are fixed
 
     # Create optimizer and loss function
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay
     )
-    loss_fn = nn.BCEWithLogitsLoss()
+    loss_fn = NHomogeneousBatchLoss(torch.nn.NLLLoss)
 
     # Create options dict
     options = dict(
         max_epochs=args.max_epochs,
         patience=args.patience,
-        min_delta=args.min_delta
+        min_delta=args.min_delta,
+        subsampling_ratio=args.subsampling_ratio,
+        seeds_per_region=args.seeds_per_region
     )
 
     # Create checkpoints folder
     MODEL_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+    # log_file = open(f"results-full/log.txt", "a+")
 
     # Train model
     trainer = Trainer(
@@ -253,18 +364,19 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train the segmentation model on images and target masks')
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
-    parser.add_argument('--lr', dest='lr', type=float, default=1e-4, help='Learning rate')
-    parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-5, help='Weight decay')
+    parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
+    parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2, help='Weight decay')
     parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
-    parser.add_argument('--min-delta', dest='min_delta', type=float, default=0., help='Early stopping min delta')
+    parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3, help='Early stopping min delta')
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
-
+    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5, help='Subsampling ratio')
+    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5, help='Seeds per Region')
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    set_seeds(0)
+    # set_seeds(0)
     args = parse_args()
 
     # Log the hyperparameters
@@ -275,5 +387,6 @@ if __name__ == "__main__":
     logging.info(f"Patience: {args.patience}")
     logging.info(f"Min delta: {args.min_delta}")
     logging.info(f"Load model path: {args.load}")
-
+    logging.info(f"Subsampling Ratio: {args.subsampling_ratio}")
+    logging.info(f"Seeds per Region: {args.seeds_per_region}")
     main(args)
