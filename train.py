@@ -23,6 +23,7 @@ from randomwalker.RandomWalkerModule import RandomWalker
 
 # from data.segmentation_dataset import SegmentationDataset
 from utils.evaluation import compute_iou
+from utils.notebookUtils import make_summary_plot as make_summary_plot_test
 # from utils.seed_utils import set_seeds
 from typing import Dict
 
@@ -57,6 +58,7 @@ class Trainer:
         self,
         train_dataloader: DataLoader,
         valid_dataloader: DataLoader,
+        test_dataloader: DataLoader,
         model: nn.Module,
         loss_fn: nn.Module,
         optimizer: torch.optim.Optimizer,
@@ -65,6 +67,7 @@ class Trainer:
         """Init method."""
         self.train_dataloader = train_dataloader
         self.valid_dataloader = valid_dataloader
+        self.test_dataloader = test_dataloader
         self.model = model
         self.loss_fn = loss_fn
         self.optimizer = optimizer
@@ -87,7 +90,7 @@ class Trainer:
         self.rw = RandomWalker(options.get('rw_num_grad', 1000),
                                max_backprop=options.get('rw_max_backprop', True))
 
-    def make_summary_plot(self, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, epoch_index):
+    def make_summary_plot(self, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, epoch_index, phase):
         """
         This function create and save a summary figure
         """
@@ -121,12 +124,12 @@ class Trainer:
         axarr[1, 1].axis("off")
 
         plt.tight_layout()
-        if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/"):
-            os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/")
-        plt.savefig(f"./results-full/{subsampling_ratio}/epoch-{epoch_index}/{it}.png")
+        if not os.path.exists(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/"):
+            os.makedirs(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/")
+        plt.savefig(f"./results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/{it}.png")
         plt.close()
 
-    def plot_singular_laplacian(self, it, raw, net_output, seeds, target, mask, subsampling_ratio, epoch_index):
+    def plot_singular_laplacian(self, it, raw, net_output, seeds, target, mask, subsampling_ratio, epoch_index, phase):
         """
         This function create and save a summary figure
         """
@@ -155,9 +158,9 @@ class Trainer:
         axarr[1, 1].axis("off")
 
         plt.tight_layout()
-        if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/"):
-            os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/")
-        plt.savefig(f"./results-full/{subsampling_ratio}/epoch-{epoch_index}/singular_{it}.png")
+        if not os.path.exists(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/"):
+            os.makedirs(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/")
+        plt.savefig(f"./results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/singular_{it}.png")
         plt.close()
     
     def sample_seeds(self,seeds_per_region, target, masked_target, mask_x, mask_y, num_classes):
@@ -179,8 +182,8 @@ class Trainer:
         seeds = seeds.unsqueeze(0)
         return seeds
 
-    def _process_epoch(self, dataloader: DataLoader, is_training: bool, epoch_index: int):
-        phase = "train" if is_training else "valid"
+    def _process_epoch(self, dataloader: DataLoader, phase: str, epoch_index: int):
+        is_training = (phase == "train")
         subsampling_ratio = self.options['subsampling_ratio']
         seeds_per_region = self.options['seeds_per_region']
         self.model.train(is_training)
@@ -189,10 +192,10 @@ class Trainer:
         avg_loss = torch.tensor(0.0)
         logging.info(f"Starting {phase} step")
         total_time = 0.0
-        if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}"):
-            os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}")
-        log_file = open(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/log.txt", "a+")
-        print(f"Epoch {epoch_index}",file=log_file)
+        if not os.path.exists(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}"):
+            os.makedirs(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}")
+        log_file = open(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/log.txt", "a+")
+        print(f"Epoch {epoch_index}", file=log_file)
         with torch.set_grad_enabled(is_training):
             num_it = 0
             for it, batch in enumerate(tqdm(dataloader)):
@@ -225,7 +228,7 @@ class Trainer:
                     except:
                         print("Singular Laplacian. Resampling seeds!")
                         self.plot_singular_laplacian(it, images[0], net_output, seeds, targets, mask,
-                                                     subsampling_ratio, epoch_index)
+                                                     subsampling_ratio, epoch_index, phase)
                         seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
 
                 # Loss and diffusivities update
@@ -244,10 +247,13 @@ class Trainer:
                 t2 = time.time()
                 total_time += t2-t1
                 num_it += 1
-                if it % 10 == 0:
+                if it % 10 == 0 or phase == "test":
                     avg_time = total_time / num_it
                     print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}", file=log_file)
-                    self.make_summary_plot(it, images[0], output, net_output, seeds, targets, mask, subsampling_ratio, epoch_index)
+                    if phase != "test":
+                        self.make_summary_plot(it, images[0], output, net_output, seeds, targets, mask, subsampling_ratio, epoch_index, phase)
+                    else:
+                        make_summary_plot_test(it, images[0], output, net_output, seeds, targets[0], iou_score, subsampling_ratio, images[0].shape[-1], img_path=f"./results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/")
                     total_time = 0.0
                     num_it = 0
 
@@ -264,8 +270,8 @@ class Trainer:
         for epoch in range(max_epochs):
             logging.info(f'Starting Epoch {epoch_index + 1}:')
 
-            train_loss, train_iou = self._process_epoch(self.train_dataloader, True, epoch_index)
-            valid_loss, valid_iou = self._process_epoch(self.valid_dataloader, False, epoch_index)
+            train_loss, train_iou = self._process_epoch(self.train_dataloader, "train", epoch_index)
+            valid_loss, valid_iou = self._process_epoch(self.valid_dataloader, "valid", epoch_index)
 
             self.tb_writer.add_scalars('loss', {'train': train_loss, 'valid': valid_loss}, epoch_index + 1)
             self.tb_writer.add_scalars('IoU', {'train': train_iou, 'valid': valid_iou}, epoch_index + 1)
@@ -293,6 +299,24 @@ class Trainer:
         model_path = MODEL_SAVE_DIR / f'last_model_{self.timestamp}_{epoch_index}'
         torch.save(self.model.state_dict(), model_path)
 
+    def test(self):
+        """Train the model with the provided options."""
+        max_epochs = self.options['max_epochs']
+        best_valid_iou = 0.
+
+        epoch_index = 0
+        for epoch in range(max_epochs):
+            logging.info(f'Starting Epoch {epoch_index + 1}:')
+
+            test_loss, test_iou = self._process_epoch(self.test_dataloader, "test", epoch_index)
+
+            self.tb_writer.add_scalars('loss', {'test': test_loss}, epoch_index + 1)
+            self.tb_writer.add_scalars('IoU', {'valid': test_iou}, epoch_index + 1)
+            self.tb_writer.flush()
+
+            logging.info(f'Losses - test: {test_loss}')
+            logging.info(f'IoUs - test: {test_iou}')
+            epoch_index += 1
 
 def main(args):
     raw_transforms = transforms.Compose([
@@ -305,15 +329,26 @@ def main(args):
     # Create datasets and dataloaders for training and validation
     train_img_dir = Path("./data/train_split/train/img")
     train_mask_dir = Path("./data/train_split/train/mask")
-    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, split="test")
+    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf",
+                                             transform=raw_transforms, target_transform=target_transforms,
+                                             subsampling_ratio=args.subsampling_ratio, split="train")
 
     valid_img_dir = Path("./data/train_split/valid/img")
     valid_mask_dir = Path("./data/train_split/valid/mask")
-    valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio = args.subsampling_ratio, split="validation")
+    valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf",
+                                             transform=raw_transforms, target_transform=target_transforms,
+                                             subsampling_ratio=args.subsampling_ratio, split="validation")
+
+    test_img_dir = Path("./data/train_split/test/img")
+    test_mask_dir = Path("./data/train_split/test/mask")
+    test_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf",
+                                            transform=raw_transforms, target_transform=target_transforms,
+                                            subsampling_ratio=args.subsampling_ratio, split="test")
 
     loader_args = dict(batch_size=args.batch_size, num_workers=os.cpu_count(), pin_memory=True)
     train_dataloader = DataLoader(train_dataset, shuffle=True, **loader_args)
     valid_dataloader = DataLoader(valid_dataset, shuffle=False, **loader_args)
+    test_dataloader = DataLoader(test_dataset, shuffle=False, **loader_args)
 
     # Create model, load from state (is possible) and log model summary
     model = UNet(1, 32, 3)
@@ -337,7 +372,7 @@ def main(args):
 
     # Create options dict
     options = dict(
-        max_epochs=args.max_epochs,
+        max_epochs=args.max_epochs if not args.test else 1,
         patience=args.patience,
         min_delta=args.min_delta,
         subsampling_ratio=args.subsampling_ratio,
@@ -346,18 +381,23 @@ def main(args):
 
     # Create checkpoints folder
     MODEL_SAVE_DIR.mkdir(parents=True, exist_ok=True)
-    # log_file = open(f"results-full/log.txt", "a+")
+    # log_file = open(f"results-{phase}/log.txt", "a+")
 
-    # Train model
     trainer = Trainer(
         train_dataloader,
         valid_dataloader,
+        test_dataloader,
         model,
         loss_fn,
         optimizer,
         options
     )
-    trainer.train()
+    if not args.test:
+        # Train model
+        trainer.train()
+    else:
+        # Test model
+        trainer.test()
 
 
 def parse_args():
@@ -371,6 +411,7 @@ def parse_args():
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
     parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5, help='Subsampling ratio')
     parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5, help='Seeds per Region')
+    parser.add_argument('--test', type=bool, action=argparse.BooleanOptionalAction, default=False, help='Evaluates model on test dataset')
     return parser.parse_args()
 
 
@@ -389,4 +430,5 @@ if __name__ == "__main__":
     logging.info(f"Load model path: {args.load}")
     logging.info(f"Subsampling Ratio: {args.subsampling_ratio}")
     logging.info(f"Seeds per Region: {args.seeds_per_region}")
+    logging.info(f"Test mode: {args.test}")
     main(args)

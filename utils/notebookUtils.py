@@ -2,8 +2,9 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from torchvision import transforms
+import os
 
-def make_summary_plot(it, raw, output, net_output, seeds, target, miou, model_subsampling_ratio, image_size):
+def make_summary_plot(it, raw, output, net_output, seeds, target, miou, model_subsampling_ratio, image_size, img_path=False):
         """
         This function create and save a summary figure
         """
@@ -31,12 +32,15 @@ def make_summary_plot(it, raw, output, net_output, seeds, target, miou, model_su
         axarr[1, 1].imshow(net_output[0, 1].detach().numpy(), cmap="gray")
         axarr[1, 1].axis("off")
 
-        plt.tight_layout()
-        plt.show()
-        # if not os.path.exists(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/"):
-        #     os.makedirs(f"results-full/{subsampling_ratio}/epoch-{epoch_index}/")
-        # plt.savefig(f"./results-full/{subsampling_ratio}/epoch-{epoch_index}/{it}.png")
-        # plt.close()
+        if img_path:
+            if not os.path.exists(img_path):
+                os.makedirs(img_path)
+            plt.savefig(f"{img_path}/{it}.png")
+            plt.close()
+        else:
+            plt.tight_layout()
+            plt.show()
+
 
 def sample_seeds(seeds_per_region, target, num_classes):
         
