@@ -1,6 +1,6 @@
 from randomwalker.RandomWalkerModule import RandomWalker
 import torch
-from datapreprocessing.target_sparse_sampling import SparseMaskTransform
+from data.datapreprocessing.target_sparse_sampling import SparseMaskTransform
 import matplotlib.pyplot as plt
 import numpy as np
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
@@ -13,7 +13,6 @@ import argparse
 from tqdm import tqdm
 
 from torchvision import transforms
-from torch.utils.data import Dataset, DataLoader
 from data.cremiDataloading import CremiSegmentationDataset
 
 if not os.path.exists('results'):

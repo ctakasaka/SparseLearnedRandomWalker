@@ -3,7 +3,6 @@ import torch
 from unet.unet import UNet
 from randomwalker.RandomWalkerModule import RandomWalker
 from data.cremiDataloading import CremiSegmentationDataset
-from datapreprocessing.target_sparse_sampling import SparseMaskTransform
 from utils.notebookUtils import make_summary_plot, sample_seeds, generate_transforms
 from utils.evaluation import compute_iou
 
