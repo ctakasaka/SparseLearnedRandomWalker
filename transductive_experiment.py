@@ -18,18 +18,21 @@ from data.cremiDataloading import CremiSegmentationDataset
 if not os.path.exists('results'):
     os.makedirs('results')
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Train on a single neuronal image')
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2, help='Weight decay')
-    # parser.add_argument('--gradients', dest='gradients', type=str, default="all", help='all for no approximation, max for approximation')
+    parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
+                        help='Weight decay')
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
     # parser.add_argument('--subsampling-ratio', dest='sub_ratio', type=float, default=0.1)
 
     return parser.parse_args()
 
-def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, gradient_pruned):
+
+def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask,
+                      subsampling_ratio, gradient_pruned):
     """
     This function create and save a summary figure
     """
@@ -124,7 +127,9 @@ if __name__ == '__main__':
     ])
 
     # loading in dataset
-    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, subsampling_ratio=0.1, split="validation")
+    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms,
+                                             target_transform=target_transforms, subsampling_ratio=0.1,
+                                             split="validation")
     raw, target, _ = train_dataset[args.img_idx]
     # legacy
     target = target.unsqueeze(0)
@@ -155,7 +160,6 @@ if __name__ == '__main__':
         print("Generating seeds")
         seeds = sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes)
 
-                    
         for gradient in gradient_pruned:
             print(f"\n Gradient Pruned: {gradient}, Subsampling ratio: {subsampling_ratio}", file=log_file)
 
@@ -209,8 +213,9 @@ if __name__ == '__main__':
                     iou_score = compute_iou(pred, target[0], num_classes)
                     avg_time = total_time / num_it
                     print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {avg_loss.item()}  mIoU: {iou_score}",
-                            file=log_file)
-                    make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, gradient)
+                          file=log_file)
+                    make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask,
+                                      subsampling_ratio, gradient)
                     total_time = 0.0
                     num_it = 0
     os.system(f"say 'Finished running experiment {experiment_name}'")

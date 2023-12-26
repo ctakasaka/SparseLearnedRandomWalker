@@ -3,7 +3,7 @@ import torch
 from unet.unet import UNet
 from randomwalker.RandomWalkerModule import RandomWalker
 from data.cremiDataloading import CremiSegmentationDataset
-from utils.notebookUtils import make_summary_plot, sample_seeds, generate_transforms
+from utils.notebook_utils import make_summary_plot, sample_seeds, generate_transforms
 from utils.evaluation import compute_iou
 
 
@@ -20,7 +20,8 @@ model.eval()
 rw = RandomWalker(1000, max_backprop=True)
 
 # load a test observation
-test_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms, target_transform=target_transforms, split="test")
+test_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms,
+                                        target_transform=target_transforms, split="test")
 test_raw, test_segmentation, test_mask = test_dataset[93]
 
 # determine number of segments in the image
@@ -39,4 +40,5 @@ output = rw(diffusivities, seeds)
 pred_masks = torch.argmax(output[0], dim=1)
 iou_score = compute_iou(pred_masks.detach().cpu(), test_segmentation.detach().cpu(), num_classes)
 
-make_summary_plot(0, test_raw, output, diffusivities, seeds, test_segmentation, iou_score, model_subsampling_ratio=0.01)
+make_summary_plot(0, test_raw, output, diffusivities, seeds, test_segmentation, iou_score,
+                  model_subsampling_ratio=0.01)

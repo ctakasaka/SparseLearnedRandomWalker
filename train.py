@@ -22,7 +22,7 @@ from randomwalker.RandomWalkerModule import RandomWalker
 
 # from data.segmentation_dataset import SegmentationDataset
 from utils.evaluation import compute_iou
-from utils.notebookUtils import make_summary_plot as make_summary_plot_test
+from utils.notebook_utils import make_summary_plot as make_summary_plot_test
 # from utils.seed_utils import set_seeds
 from typing import Dict
 
@@ -89,7 +89,8 @@ class Trainer:
         self.rw = RandomWalker(options.get('rw_num_grad', 1000),
                                max_backprop=options.get('rw_max_backprop', True))
 
-    def make_summary_plot(self, it, raw, output, net_output, seeds, target, mask, subsampling_ratio, epoch_index, phase):
+    def make_summary_plot(self, it, raw, output, diffusivities, seeds, target, mask, subsampling_ratio,
+                          epoch_index, phase):
         """
         This function create and save a summary figure
         """
@@ -115,11 +116,11 @@ class Trainer:
         axarr[0, 1].axis("off")
 
         axarr[1, 0].set_title("Vertical Diffusivities")
-        axarr[1, 0].imshow(net_output[0, 0].detach().numpy(), cmap="gray")
+        axarr[1, 0].imshow(diffusivities[0, 0].detach().numpy(), cmap="gray")
         axarr[1, 0].axis("off")
 
         axarr[1, 1].set_title("Horizontal Diffusivities")
-        axarr[1, 1].imshow(net_output[0, 1].detach().numpy(), cmap="gray")
+        axarr[1, 1].imshow(diffusivities[0, 1].detach().numpy(), cmap="gray")
         axarr[1, 1].axis("off")
 
         plt.tight_layout()
@@ -128,7 +129,8 @@ class Trainer:
         plt.savefig(f"./results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/{it}.png")
         plt.close()
 
-    def plot_singular_laplacian(self, it, raw, net_output, seeds, target, mask, subsampling_ratio, epoch_index, phase):
+    def plot_singular_laplacian(self, it, raw, diffusivities, seeds, target, mask, subsampling_ratio,
+                                epoch_index, phase):
         """
         This function create and save a summary figure
         """
@@ -149,11 +151,11 @@ class Trainer:
         axarr[0, 0].axis("off")
 
         axarr[1, 0].set_title("Vertical Diffusivities")
-        axarr[1, 0].imshow(net_output[0, 0].detach().numpy(), cmap="gray")
+        axarr[1, 0].imshow(diffusivities[0, 0].detach().numpy(), cmap="gray")
         axarr[1, 0].axis("off")
 
         axarr[1, 1].set_title("Horizontal Diffusivities")
-        axarr[1, 1].imshow(net_output[0, 1].detach().numpy(), cmap="gray")
+        axarr[1, 1].imshow(diffusivities[0, 1].detach().numpy(), cmap="gray")
         axarr[1, 1].axis("off")
 
         plt.tight_layout()
@@ -188,20 +190,20 @@ class Trainer:
         self.model.train(is_training)
         total_loss = 0.0
         total_iou = 0.0
-        avg_loss = torch.tensor(0.0)
+
         logging.info(f"Starting {phase} step")
         total_time = 0.0
         if not os.path.exists(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}"):
             os.makedirs(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}")
         log_file = open(f"results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/log.txt", "a+")
         print(f"Epoch {epoch_index}", file=log_file)
+        
         with torch.set_grad_enabled(is_training):
             num_it = 0
             for it, batch in enumerate(tqdm(dataloader)):
                 t1 = time.time()
                 images, targets, masks = batch
-                # images = images.to(self.device).to(dtype=torch.float)
-                # masks = masks.to(self.device).to(dtype=torch.float)
+
                 images = images.to(self.device)
                 masks = masks.to(self.device)
                 targets = targets.to(self.device)
@@ -209,9 +211,10 @@ class Trainer:
                 num_classes = len(np.unique(targets.squeeze()))
 
                 self.optimizer.zero_grad()
-                diffusivities = self.model(images)
+                net_output = self.model(images)
+
                 # Diffusivities must be positive
-                net_output = torch.sigmoid(diffusivities)
+                diffusivities = torch.sigmoid(net_output)
 
                 mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
                 mask_x, mask_y = mask.nonzero(as_tuple=True)
@@ -222,13 +225,14 @@ class Trainer:
                 while not valid_output:
                     try:
                         # Random walker
-                        output = self.rw(net_output, seeds)
+                        output = self.rw(diffusivities, seeds)
                         valid_output = True
                     except:
                         print("Singular Laplacian. Resampling seeds!")
-                        self.plot_singular_laplacian(it, images[0], net_output, seeds, targets, mask,
+                        self.plot_singular_laplacian(it, images[0], diffusivities, seeds, targets, mask,
                                                      subsampling_ratio, epoch_index, phase)
-                        seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y, num_classes)
+                        seeds = self.sample_seeds(seeds_per_region, targets, masked_targets, mask_x, mask_y,
+                                                  num_classes)
 
                 # Loss and diffusivities update
                 output_log = [torch.log(o + 1e-10)[:, :, mask_x, mask_y] for o in output]
@@ -248,11 +252,15 @@ class Trainer:
                 num_it += 1
                 if it % 10 == 0 or phase == "test":
                     avg_time = total_time / num_it
-                    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}", file=log_file)
+                    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}",
+                          file=log_file)
                     if phase != "test":
-                        self.make_summary_plot(it, images[0], output, net_output, seeds, targets, mask, subsampling_ratio, epoch_index, phase)
+                        self.make_summary_plot(it, images[0], output, diffusivities, seeds, targets, mask,
+                                               subsampling_ratio, epoch_index, phase)
                     else:
-                        make_summary_plot_test(it, images[0], output, net_output, seeds, targets[0], iou_score, subsampling_ratio, images[0].shape[-1], img_path=f"./results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/")
+                        make_summary_plot_test(it, images[0], output, diffusivities, seeds, targets[0], iou_score,
+                                               subsampling_ratio, images[0].shape[-1],
+                                               img_path=f"./results-{phase}/{subsampling_ratio}/epoch-{epoch_index}/")
                     total_time = 0.0
                     num_it = 0
 
@@ -272,8 +280,10 @@ class Trainer:
             train_loss, train_iou = self._process_epoch(self.train_dataloader, "train", epoch_index)
             valid_loss, valid_iou = self._process_epoch(self.valid_dataloader, "valid", epoch_index)
 
-            self.tb_writer.add_scalars('loss', {'train': train_loss, 'valid': valid_loss}, epoch_index + 1)
-            self.tb_writer.add_scalars('IoU', {'train': train_iou, 'valid': valid_iou}, epoch_index + 1)
+            self.tb_writer.add_scalars('loss', {'train': train_loss, 'valid': valid_loss},
+                                       epoch_index + 1)
+            self.tb_writer.add_scalars('IoU', {'train': train_iou, 'valid': valid_iou},
+                                       epoch_index + 1)
             self.tb_writer.flush()
 
             if valid_iou > best_valid_iou and epoch_index > 0:
@@ -320,26 +330,20 @@ class Trainer:
 def main(args):
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.FiveCrop(size=(128, 128)),
+        transforms.FiveCrop(size=(512, 512)),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=(128, 128)),
+        transforms.FiveCrop(size=(512, 512)),
     ])
     # Create datasets and dataloaders for training and validation
-    train_img_dir = Path("./data/train_split/train/img")
-    train_mask_dir = Path("./data/train_split/train/mask")
     train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf",
                                              transform=raw_transforms, target_transform=target_transforms,
                                              subsampling_ratio=args.subsampling_ratio, split="train")
 
-    valid_img_dir = Path("./data/train_split/valid/img")
-    valid_mask_dir = Path("./data/train_split/valid/mask")
     valid_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf",
                                              transform=raw_transforms, target_transform=target_transforms,
                                              subsampling_ratio=args.subsampling_ratio, split="validation")
 
-    test_img_dir = Path("./data/train_split/test/img")
-    test_mask_dir = Path("./data/train_split/test/mask")
     test_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf",
                                             transform=raw_transforms, target_transform=target_transforms,
                                             subsampling_ratio=args.subsampling_ratio, split="test")
@@ -380,7 +384,6 @@ def main(args):
 
     # Create checkpoints folder
     MODEL_SAVE_DIR.mkdir(parents=True, exist_ok=True)
-    # log_file = open(f"results-{phase}/log.txt", "a+")
 
     trainer = Trainer(
         train_dataloader,
@@ -404,13 +407,18 @@ def parse_args():
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2, help='Weight decay')
+    parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
+                        help='Weight decay')
     parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
-    parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3, help='Early stopping min delta')
+    parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3,
+                        help='Early stopping min delta')
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
-    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5, help='Subsampling ratio')
-    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5, help='Seeds per Region')
-    parser.add_argument('--test', type=bool, action=argparse.BooleanOptionalAction, default=False, help='Evaluates model on test dataset')
+    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5,
+                        help='Subsampling ratio')
+    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
+                        help='Seeds per Region')
+    parser.add_argument('--test', type=bool, action=argparse.BooleanOptionalAction, default=False,
+                        help='Evaluates model on test dataset')
     return parser.parse_args()
 
 
