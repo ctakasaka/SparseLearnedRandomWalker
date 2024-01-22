@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
 from unet.unet import UNet
-from utils.evaluation import compute_iou
+from utils.evaluation_utils import compute_iou
 import time
 import os
 import argparse
@@ -14,107 +14,32 @@ from tqdm import tqdm
 
 from torchvision import transforms
 from data.cremiDataloading import CremiSegmentationDataset
-
-if not os.path.exists('results'):
-    os.makedirs('results')
+from utils.seed_utils import sample_seeds
+from utils.plotting_utils import (plot_ground_truth, plot_horizontal_diffusivities,
+                                  plot_vertical_diffusivities, plot_predictions)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train on a single neuronal image')
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
+    parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
                         help='Weight decay')
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
-    # parser.add_argument('--subsampling-ratio', dest='sub_ratio', type=float, default=0.1)
+    parser.add_argument('--diffusivity-threshold', dest="diffusivity_threshold", type=float, default=False,
+                        help='Diffusivity threshold')
+    parser.add_argument('--rw-num-grad', dest="rw_num_grad", type=int, default=1000,
+                        help='Number of sampled gradients for Random Walker backprop')
+    parser.add_argument('--rw-max-backprop', dest="rw_max_backprop", type=bool, default=True,
+                        help='Whether to use gradient pruning in Random Walker backprop')
+    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5,
+                        help='Subsampling ratio')
+    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
+                        help='Seeds per Region')
 
     return parser.parse_args()
 
-def plot_ground_truth(ax, raw, target, seeds, mask):
-    ax.imshow(raw[0].detach().numpy(), cmap="gray")
-    ax.imshow(target[0, 0].detach().numpy(), alpha=0.6, vmin=-3, cmap="prism_r")
-    seeds_listx, seeds_listy = np.where(seeds[0].data != 0)
-    ax.scatter(seeds_listy, seeds_listx, c="r")
-    ax.axis("off")
-
-    mask_x, mask_y = np.where(mask != 0)
-    ax.scatter(mask_y, mask_x, c="b", s=0.5, marker='o')
-    ax.axis("off")
-
-def plot_predictions(ax, raw, output):
-    ax.imshow(raw[0].detach().numpy(), cmap="gray")
-    ax.imshow(np.argmax(output[0][0].detach().numpy(), 0), alpha=0.6, vmin=-3, cmap="prism_r")
-
-def plot_horizontal_diffusivities(ax, net_output):
-    ax.imshow(net_output[0, 1].detach().numpy(), cmap="gray")
-    ax.axis("off")
-
-def plot_vertical_diffusivities(ax, net_output):
-    ax.imshow(net_output[0, 0].detach().numpy(), cmap="gray")
-    ax.axis("off")
-
-def make_summary_plot(experiment_name, it, raw, output, net_output, seeds, target, mask,
-                      subsampling_ratio, gradient_pruned):
-    """
-    This function create and save a summary figure
-    """
-    f, axarr = plt.subplots(2, 2, figsize=(8, 9.5))
-    f.suptitle("RW summary, Iteration: " + repr(it))
-
-    axarr[0, 0].set_title("Ground Truth Image")
-    axarr[0, 0].imshow(raw[0].detach().numpy(), cmap="gray")
-    axarr[0, 0].imshow(target[0, 0].detach().numpy(), alpha=0.6, vmin=-3, cmap="prism_r")
-    seeds_listx, seeds_listy = np.where(seeds[0].data != 0)
-    axarr[0, 0].scatter(seeds_listy,
-                        seeds_listx, c="r")
-    axarr[0, 0].axis("off")
-
-    mask_x, mask_y = np.where(mask != 0)
-    axarr[0, 0].scatter(mask_y,
-                        mask_x, c="b", s=0.5, marker='o')
-    axarr[0, 0].axis("off")
-
-    axarr[0, 1].set_title("LRW output (white seed)")
-    axarr[0, 1].imshow(raw[0].detach().numpy(), cmap="gray")
-    axarr[0, 1].imshow(np.argmax(output[0][0].detach().numpy(), 0), alpha=0.6, vmin=-3, cmap="prism_r")
-    axarr[0, 1].axis("off")
-
-    axarr[1, 0].set_title("Vertical Diffusivities")
-    axarr[1, 0].imshow(net_output[0, 0].detach().numpy(), cmap="gray")
-    axarr[1, 0].axis("off")
-
-    axarr[1, 1].set_title("Horizontal Diffusivities")
-    axarr[1, 1].imshow(net_output[0, 1].detach().numpy(), cmap="gray")
-    axarr[1, 1].axis("off")
-
-    plt.tight_layout()
-    gradient_type = 'full'
-    if gradient_pruned:
-        gradient_type = 'pruned'
-
-    if not os.path.exists(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}"):
-        os.makedirs(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}")
-    plt.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/{it}.png")
-    plt.close()
-
-def sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes):
-    seeds = torch.zeros_like(target.squeeze())
-    if seeds_per_region == 1:
-        seed_indices = np.array([
-            np.random.choice(np.where(masked_target == i)[0]) for i in range(num_classes)
-        ])
-    else:
-        num_seeds = [
-            min(len(np.where(masked_target == i)[0]), seeds_per_region) for i in range(num_classes)
-        ]
-        seed_indices = np.concatenate([
-            np.random.choice(np.where(masked_target == i)[0], num_seeds[i], replace=False)
-            for i in range(num_classes)
-        ])
-    target_seeds = target.squeeze()[mask_x[seed_indices], mask_y[seed_indices]] + 1
-    seeds[mask_x[seed_indices], mask_y[seed_indices]] = target_seeds
-    seeds = seeds.unsqueeze(0)
-    return seeds
 
 if __name__ == '__main__':
     args = parse_args()
@@ -123,11 +48,10 @@ if __name__ == '__main__':
     seeds_per_region = 1
     accumulate_iterations = 1
 
-    experiment_name = f"image-{args.img_idx}-seeds-{seeds_per_region}"
-    if not os.path.exists(f"results/{experiment_name}"):
-        os.makedirs(f"results/{experiment_name}")
-    log_file = open(f"results/{experiment_name}/log.txt", "a+")
-    print(experiment_name, file=log_file)
+    save_path = f"comparative-image-{args.img_idx}-seeds-{seeds_per_region}"
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    log_file = open(f"{save_path}/log.txt", "a+")
 
     # Init parameters
     batch_size = 1
@@ -149,139 +73,112 @@ if __name__ == '__main__':
                                              target_transform=target_transforms, subsampling_ratio=0.1,
                                              split="validation")
     raw, target, _ = train_dataset[args.img_idx]
-    # legacy
     target = target.unsqueeze(0)
-    
-    print("Data loaded, beginning experiment.")
-
     num_classes = len(np.unique(target))
 
-    subsampling_ratios = [0.01, 0.1, 0.5]
-    gradient_pruned = [True]
-    
-    for subsampling_ratio in subsampling_ratios:
-        # Define sparse mask for the loss
-        print("Generating mask")
-        valid_mask = False
-        while not valid_mask:
-            valid_mask = True
-            mask = SparseMaskTransform(subsampling_ratio=subsampling_ratio)(target.squeeze())
-            mask_x, mask_y = mask.nonzero(as_tuple=True)
-            masked_target = target.squeeze()[mask_x, mask_y]
+    # Define sparse mask for the loss
+    mask = SparseMaskTransform(args.subsampling_ratio)(target.squeeze())
+    mask_x, mask_y = mask.nonzero(as_tuple=True)
+    masked_targets = target.squeeze()[mask_x, mask_y]
 
-            for i in range(num_classes):
-                labels_in_region = len(np.where(masked_target == i)[0])
-                if labels_in_region == 0:
-                    valid_mask = False
+    # Generate seeds
+    seeds = sample_seeds(seeds_per_region, target, masked_targets, mask_x, mask_y, num_classes)
 
-        # generate seeds
-        print("Generating seeds")
-        seeds = sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_classes)
+    # Create figures for comparative plots
+    f_hdiff, axarr_hdiff = plt.subplots(3, 1 + iterations // 5, figsize=(32, 10))
+    f_hdiff.suptitle("RW summary - horizontal diffusivities")
+    axarr_hdiff[0, 0].set_title("Ground Truth Image")
+    axarr_hdiff[1, 0].set_title("Untrained model")
+    axarr_hdiff[2, 0].set_title("Pretrained model")
 
-        for gradient in gradient_pruned:
-            print(f"\n Gradient Pruned: {gradient}, Subsampling ratio: {subsampling_ratio}", file=log_file)
+    f_vdiff, axarr_vdiff = plt.subplots(3, 1 + iterations // 5, figsize=(32, 10))
+    f_vdiff.suptitle("RW summary - vertical diffusivities")
+    axarr_vdiff[0, 0].set_title("Ground Truth Image")
+    axarr_vdiff[1, 0].set_title("Untrained model")
+    axarr_vdiff[2, 0].set_title("Pretrained model")
 
-            f_hdiff, axarr_hdiff = plt.subplots(3, 1 + iterations // 5, figsize=(32, 10))
-            f_hdiff.suptitle("RW summary - horizontal diffusivities")
-            axarr_hdiff[0, 0].set_title("Ground Truth Image")
-            axarr_hdiff[1, 0].set_title("Untrained model")
-            axarr_hdiff[2, 0].set_title("Pretrained model")
+    f_pred, axarr_pred = plt.subplots(3, 1 + iterations // 5, figsize=(32, 10))
+    f_pred.suptitle("RW summary - predictions")
+    axarr_pred[0, 0].set_title("Ground Truth Image")
+    axarr_pred[1, 0].set_title("Untrained model")
+    axarr_pred[2, 0].set_title("Pretrained model")
 
-            f_vdiff, axarr_vdiff = plt.subplots(3, 1 + iterations // 5, figsize=(32, 10))
-            f_vdiff.suptitle("RW summary - vertical diffusivities")
-            axarr_vdiff[0, 0].set_title("Ground Truth Image")
-            axarr_vdiff[1, 0].set_title("Untrained model")
-            axarr_vdiff[2, 0].set_title("Pretrained model")
+    # Inner transductive experiment function - to be used by untrained and pretrained model
+    def run_transductive_experiment(model_path=False):
+        # Init the UNet
+        unet = UNet(1, 32, 3)
+        if model_path:
+            unet.load_state_dict(torch.load(model_path))
 
-            f_pred, axarr_pred = plt.subplots(3, 1 + iterations // 5, figsize=(32, 10))
-            f_pred.suptitle("RW summary - predictions")
-            axarr_pred[0, 0].set_title("Ground Truth Image")
-            axarr_pred[1, 0].set_title("Untrained model")
-            axarr_pred[2, 0].set_title("Pretrained model")
+        # Init the random walker modules
+        rw = RandomWalker(args.rw_num_grad, max_backprop=args.rw_max_backprop)
 
-            def run_transductive_experiment(model_path=False):
-                # Init the UNet
-                unet = UNet(1, 32, 3)
-                if model_path:
-                    unet.load_state_dict(torch.load(model_path))
+        # Init optimizer
+        optimizer = torch.optim.AdamW(unet.parameters(), lr=0.01, weight_decay=args.weight_decay)
 
-                # Init the random walker modules
-                rw = RandomWalker(1000, max_backprop=gradient)
+        # Loss has to been wrapped in order to work with random walker algorithm
+        loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
 
-                # Init optimizer
-                optimizer = torch.optim.AdamW(unet.parameters(), lr=0.01, weight_decay=args.weight_decay)
+        # Main overfit loop
+        total_time = 0.0
+        num_it = 0
+        for it in tqdm(range(iterations + 1)):
+            t1 = time.time()
+            optimizer.zero_grad()
 
-                # Loss has to been wrapped in order to work with random walker algorithm
-                loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
+            diffusivities = unet(raw.unsqueeze(0))
 
-                # Main overfit loop
+            # Diffusivities must be positive
+            net_output = torch.sigmoid(diffusivities)
+
+            # Random walker
+            output = rw(net_output, seeds)
+
+            # Loss and diffusivities update
+            output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
+
+            l = loss(output_log, target[:, :, mask_x, mask_y])
+            l.backward(retain_graph=True)
+            optimizer.step()
+
+            t2 = time.time()
+            total_time += t2 - t1
+            num_it += 1
+
+            # Summary
+            if it % 5 == 0:
+                pred = torch.argmax(output[0], dim=1)
+                iou_score = compute_iou(pred, target[0], num_classes)
+                avg_time = total_time / num_it
+                print(
+                    f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {l.item()}  mIoU: {iou_score}",
+                    file=log_file)
+                plot_ground_truth(axarr_hdiff[0, it // 5], raw, target, seeds, mask)
+                plot_ground_truth(axarr_vdiff[0, it // 5], raw, target, seeds, mask)
+                plot_ground_truth(axarr_pred[0, it // 5], raw, target, seeds, mask)
+
+                plot_index = 1 if not model_path else 2
+                plot_horizontal_diffusivities(axarr_hdiff[plot_index, it // 5], net_output)
+                plot_vertical_diffusivities(axarr_vdiff[plot_index, it // 5], net_output)
+                plot_predictions(axarr_pred[plot_index, it // 5], raw, output)
+
+                if not os.path.exists(f"{save_path}"):
+                    os.makedirs(f"{save_path}")
+
+                f_hdiff.savefig(f"{save_path}/h_diff.png", dpi=300)
+                f_vdiff.savefig(f"{save_path}/v_diff.png", dpi=300)
+                f_pred.savefig(f"{save_path}/pred.png", dpi=300)
+
                 total_time = 0.0
                 num_it = 0
-                for it in tqdm(range(iterations + 1)):
-                    t1 = time.time()
-                    optimizer.zero_grad()
+    run_transductive_experiment()
+    run_transductive_experiment(f"checkpoints/models/best_model_subsample_{args.subsampling_ratio}")
 
-                    diffusivities = unet(raw.unsqueeze(0))
+    plt.tight_layout()
 
-                    # Diffusivities must be positive
-                    net_output = torch.sigmoid(diffusivities)
+    if not os.path.exists(f"{save_path}"):
+        os.makedirs(f"{save_path}")
 
-                    avg_loss = torch.tensor(0.0)
-                    for k in range(accumulate_iterations):
-                        # Random walker
-                        output = rw(net_output, seeds)
-
-                        # Loss and diffusivities update
-                        output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
-
-                        l = loss(output_log, target[:, :, mask_x, mask_y])
-                        avg_loss += l
-
-                    avg_loss /= accumulate_iterations
-                    avg_loss.backward(retain_graph=True)
-                    optimizer.step()
-
-                    t2 = time.time()
-                    total_time += t2 - t1
-                    num_it += 1
-
-                    # Summary
-                    if it % 5 == 0:
-                        pred = torch.argmax(output[0], dim=1)
-                        iou_score = compute_iou(pred, target[0], num_classes)
-                        avg_time = total_time / num_it
-                        print(
-                            f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {avg_loss.item()}  mIoU: {iou_score}",
-                            file=log_file)
-                        plot_ground_truth(axarr_hdiff[0, it // 5], raw, target, seeds, mask)
-                        plot_ground_truth(axarr_vdiff[0, it // 5], raw, target, seeds, mask)
-                        plot_ground_truth(axarr_pred[0, it // 5], raw, target, seeds, mask)
-
-                        plot_index = 1 if not model_path else 2
-                        plot_horizontal_diffusivities(axarr_hdiff[plot_index, it // 5], net_output)
-                        plot_vertical_diffusivities(axarr_vdiff[plot_index, it // 5], net_output)
-                        plot_predictions(axarr_pred[plot_index, it // 5], raw, output)
-
-                        gradient_type = 'pruned' if gradient_pruned else 'full'
-                        if not os.path.exists(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}"):
-                            os.makedirs(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}")
-
-                        f_hdiff.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/h_diff.png", dpi=300)
-                        f_vdiff.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/v_diff.png", dpi=300)
-                        f_pred.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/pred.png", dpi=300)
-
-                        total_time = 0.0
-                        num_it = 0
-            run_transductive_experiment()
-            run_transductive_experiment(f"checkpoints/models/best_model_subsample_{subsampling_ratio}")
-
-            plt.tight_layout()
-
-            gradient_type = 'pruned' if gradient_pruned else 'full'
-            if not os.path.exists(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}"):
-                os.makedirs(f"results/{experiment_name}/{subsampling_ratio}/{gradient_type}")
-
-            f_hdiff.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/h_diff.png", dpi=300)
-            f_vdiff.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/v_diff.png", dpi=300)
-            f_pred.savefig(f"./results/{experiment_name}/{subsampling_ratio}/{gradient_type}/pred.png", dpi=300)
-
+    f_hdiff.savefig(f"{save_path}/h_diff.png", dpi=300)
+    f_vdiff.savefig(f"{save_path}/v_diff.png", dpi=300)
+    f_pred.savefig(f"{save_path}/pred.png", dpi=300)
