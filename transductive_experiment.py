@@ -1,7 +1,5 @@
 from randomwalker.RandomWalkerModule import RandomWalker
 import torch
-from data.datapreprocessing.target_sparse_sampling import SparseMaskTransform
-import matplotlib.pyplot as plt
 import numpy as np
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
 from unet.unet import UNet
@@ -13,14 +11,14 @@ import argparse
 from tqdm import tqdm
 
 from torchvision import transforms
-from data.cremiDataloading import CremiSegmentationDataset
+from data.cremi_dataloader import CremiSegmentationDataset
 from utils.seed_utils import sample_seeds
 from utils.plotting_utils import save_summary_plot
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train on a single neuronal image')
-    parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
+    parser.add_argument('--max-epochs', type=int, default=50, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
@@ -35,6 +33,8 @@ def parse_args():
                         help='Whether to use gradient pruning in Random Walker backprop')
     parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5,
                         help='Subsampling ratio')
+    parser.add_argument('--resolution', type=int, default=512,
+                        help='Image resolution')
     parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
                         help='Seeds per Region')
 
@@ -45,37 +45,37 @@ if __name__ == '__main__':
     args = parse_args()
 
     save_path = f"transductive-image-{args.img_idx}-seeds-{args.seeds_per_region}"
-    if not os.path.exists(f"results/{save_path}"):
-        os.makedirs(f"results/{save_path}")
-    log_file = open(f"results/{save_path}/log.txt", "a+")
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    log_file = open(f"{save_path}/log.txt", "a+")
     print(save_path, file=log_file)
 
     # Init parameters
     batch_size = 1
-    iterations = 50
-    size = (128, 128)
+    iterations = args.max_epochs
+    size = (args.resolution, args.resolution)
     datadir = "data/"
 
     # Load data and init
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.FiveCrop(size=size),
+        transforms.CenterCrop(size=size),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=size),
+        transforms.CenterCrop(size=size),
     ])
 
     # loading in dataset
     train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms,
-                                             target_transform=target_transforms, subsampling_ratio=0.1,
-                                             split="validation")
-    raw, target, _ = train_dataset[args.img_idx]
+                                             target_transform=target_transforms,
+                                             subsampling_ratio=args.subsampling_ratio, split="train")
+    raw, target, mask = train_dataset[args.img_idx]
     target = target.unsqueeze(0)
 
     num_classes = len(np.unique(target))
 
     # Define sparse mask for the loss
-    mask = SparseMaskTransform(args.subsampling_ratio)(target.squeeze())
+    mask = mask.squeeze()
     mask_x, mask_y = mask.nonzero(as_tuple=True)
     masked_targets = target.squeeze()[mask_x, mask_y]
 

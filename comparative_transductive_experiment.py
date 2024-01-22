@@ -1,6 +1,5 @@
 from randomwalker.RandomWalkerModule import RandomWalker
 import torch
-from data.datapreprocessing.target_sparse_sampling import SparseMaskTransform
 import matplotlib.pyplot as plt
 import numpy as np
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
@@ -13,7 +12,7 @@ import argparse
 from tqdm import tqdm
 
 from torchvision import transforms
-from data.cremiDataloading import CremiSegmentationDataset
+from data.cremi_dataloader import CremiSegmentationDataset
 from utils.seed_utils import sample_seeds
 from utils.plotting_utils import (plot_ground_truth, plot_horizontal_diffusivities,
                                   plot_vertical_diffusivities, plot_predictions)
@@ -21,7 +20,7 @@ from utils.plotting_utils import (plot_ground_truth, plot_horizontal_diffusiviti
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train on a single neuronal image')
-    parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
+    parser.add_argument('--max-epochs', type=int, default=50, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
@@ -45,8 +44,7 @@ if __name__ == '__main__':
     args = parse_args()
 
     # Experiment parameters
-    seeds_per_region = 1
-    accumulate_iterations = 1
+    seeds_per_region = args.seeds_per_region
 
     save_path = f"comparative-image-{args.img_idx}-seeds-{seeds_per_region}"
     if not os.path.exists(save_path):
@@ -55,29 +53,29 @@ if __name__ == '__main__':
 
     # Init parameters
     batch_size = 1
-    iterations = 50
-    size = (256, 256)
+    iterations = args.max_epochs
+    size = (args.resolution, args.resolution)
     datadir = "data/"
 
     # Load data and init
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-        transforms.FiveCrop(size=size),
+        transforms.CenterCrop(size=size),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=size),
+        transforms.CenterCrop(size=size),
     ])
 
     # loading in dataset
     train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms,
-                                             target_transform=target_transforms, subsampling_ratio=0.1,
-                                             split="validation")
-    raw, target, _ = train_dataset[args.img_idx]
+                                             target_transform=target_transforms,
+                                             subsampling_ratio=args.subsampling_ratio, split="train")
+    raw, target, mask = train_dataset[args.img_idx]
     target = target.unsqueeze(0)
     num_classes = len(np.unique(target))
 
     # Define sparse mask for the loss
-    mask = SparseMaskTransform(args.subsampling_ratio)(target.squeeze())
+    mask = mask.squeeze()
     mask_x, mask_y = mask.nonzero(as_tuple=True)
     masked_targets = target.squeeze()[mask_x, mask_y]
 

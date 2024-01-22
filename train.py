@@ -2,16 +2,14 @@ import os
 import logging
 import argparse
 import torch.nn as nn
-import matplotlib.pyplot as plt
 import time
 from tqdm import tqdm
 from pathlib import Path
 from torchinfo import summary
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from data.cremiDataloading import CremiSegmentationDataset
+from data.cremi_dataloader import CremiSegmentationDataset
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
-from data.datapreprocessing.target_sparse_sampling import SparseMaskTransform
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import numpy as np
@@ -123,7 +121,7 @@ class Trainer:
                 # Diffusivities must be positive
                 diffusivities = torch.sigmoid(net_output)
 
-                mask = SparseMaskTransform(subsampling_ratio)(targets.squeeze())
+                mask = masks.squeeze()
                 mask_x, mask_y = mask.nonzero(as_tuple=True)
                 masked_targets = targets.squeeze()[mask_x, mask_y]
 
@@ -225,10 +223,10 @@ class Trainer:
 def main(args):
     raw_transforms = transforms.Compose([
         transforms.Normalize(mean=[0.5], std=[0.5]),
-            transforms.FiveCrop(size=(128, 128)),
+        transforms.CenterCrop(size=(args.resolution, args.resolution)),
     ])
     target_transforms = transforms.Compose([
-        transforms.FiveCrop(size=(128, 128)),
+        transforms.CenterCrop(size=(args.resolution, args.resolution)),
     ])
     # Create datasets and dataloaders for training and validation
     train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf",
@@ -317,10 +315,12 @@ def parse_args():
                         help='Number of sampled gradients for Random Walker backprop')
     parser.add_argument('--rw-max-backprop', dest="rw_max_backprop", type=bool, default=True,
                         help='Whether to use gradient pruning in Random Walker backprop')
-    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5,
+    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.01,
                         help='Subsampling ratio')
     parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
                         help='Seeds per Region')
+    parser.add_argument('--resolution', type=int, default=512,
+                        help='Image resolution')
     parser.add_argument('--test', type=bool, action=argparse.BooleanOptionalAction, default=False,
                         help='Evaluates model on test dataset')
     return parser.parse_args()
@@ -344,5 +344,6 @@ if __name__ == "__main__":
     logging.info(f"Using gradient pruning: {args.rw_max_backprop}")
     logging.info(f"Subsampling Ratio: {args.subsampling_ratio}")
     logging.info(f"Seeds per Region: {args.seeds_per_region}")
+    logging.info(f"Image resolution: {args.resolution}")
     logging.info(f"Test mode: {args.test}")
     main(args)
