@@ -1,0 +1,22 @@
+name: SparseLearnedRandomWalker
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - h5py
+  - hdf5
+  - matplotlib
+  - numba
+  - numpy
+  - pip
+  - python=3.9
+  - pytorch
+  - scikit-learn
+  - scikit-sparse
+  - scipy
+  - tensorboard
+  - torchinfo
+  - torchvision
+  - tqdm
+  - pip:
+      - xxhash
