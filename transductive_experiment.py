@@ -6,7 +6,6 @@ from unet.unet import UNet
 from utils.evaluation_utils import compute_iou
 import time
 import os
-import argparse
 
 from tqdm import tqdm
 
@@ -14,29 +13,13 @@ from torchvision import transforms
 from data.cremi_dataloader import CremiSegmentationDataset
 from utils.seed_utils import sample_seeds
 from utils.plotting_utils import save_summary_plot
+from train import get_base_parser
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train on a single neuronal image')
-    parser.add_argument('--max-epochs', type=int, default=50, help='Maximum number of epochs')
-    parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
-    parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
-                        help='Weight decay')
+    parser = get_base_parser(description='Train on a single neuronal image')
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
-    parser.add_argument('--diffusivity-threshold', dest="diffusivity_threshold", type=float, default=False,
-                        help='Diffusivity threshold')
-    parser.add_argument('--rw-num-grad', dest="rw_num_grad", type=int, default=1000,
-                        help='Number of sampled gradients for Random Walker backprop')
-    parser.add_argument('--rw-max-backprop', dest="rw_max_backprop", type=bool, default=True,
-                        help='Whether to use gradient pruning in Random Walker backprop')
-    parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.5,
-                        help='Subsampling ratio')
-    parser.add_argument('--resolution', type=int, default=512,
-                        help='Image resolution')
-    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
-                        help='Seeds per Region')
 
     return parser.parse_args()
 

@@ -298,17 +298,13 @@ def main(args):
         trainer.test()
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Train the segmentation model on images and target masks')
+def get_base_parser(description):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
                         help='Weight decay')
-    parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
-    parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3,
-                        help='Early stopping min delta')
-    parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
     parser.add_argument('--diffusivity-threshold', dest="diffusivity_threshold", type=float, default=False,
                         help='Diffusivity threshold')
     parser.add_argument('--rw-num-grad', dest="rw_num_grad", type=int, default=1000,
@@ -317,10 +313,19 @@ def parse_args():
                         help='Whether to use gradient pruning in Random Walker backprop')
     parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.01,
                         help='Subsampling ratio')
-    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
-                        help='Seeds per Region')
     parser.add_argument('--resolution', type=int, default=512,
                         help='Image resolution')
+    parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
+                        help='Seeds per Region')
+    return parser
+
+
+def parse_args():
+    parser = get_base_parser(description='Train the segmentation model on images and target masks')
+    parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
+    parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3,
+                        help='Early stopping min delta')
+    parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
     parser.add_argument('--test', type=bool, action=argparse.BooleanOptionalAction, default=False,
                         help='Evaluates model on test dataset')
     return parser.parse_args()
