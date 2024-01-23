@@ -24,6 +24,64 @@ def parse_args():
     return parser.parse_args()
 
 
+def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, summary_callback=None, model_path=False):
+    # Init the UNet
+    unet = UNet(1, 32, 3)
+    if model_path:
+        unet.load_state_dict(torch.load(model_path))
+
+    # Init the random walker modules
+    rw = RandomWalker(args.sampled_gradients, max_backprop=args.gradient_pruning)
+
+    # Init optimizer
+    optimizer = torch.optim.AdamW(unet.parameters(), lr=0.01, weight_decay=args.weight_decay)
+
+    # Loss has to been wrapped in order to work with random walker algorithm
+    loss_fn = NHomogeneousBatchLoss(torch.nn.NLLLoss)
+
+    # Main overfit loop
+    total_time = 0.0
+    num_it = 0
+    for it in tqdm(range(iterations + 1)):
+        t1 = time.time()
+        optimizer.zero_grad()
+
+        net_output = unet(raw.unsqueeze(0))
+
+        # Diffusivities must be positive
+        diffusivities = torch.sigmoid(net_output)
+
+        # Random walker
+        output = rw(diffusivities, seeds)
+
+        # Loss and diffusivities update
+        output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
+
+        l = loss_fn(output_log, target[:, :, mask_x, mask_y])
+        l.backward(retain_graph=True)
+        optimizer.step()
+
+        t2 = time.time()
+        total_time += t2 - t1
+        num_it += 1
+
+        # Summary
+        if it % 5 == 0 and summary_callback is not None:
+            pred = torch.argmax(output[0], dim=1)
+            iou_score = compute_iou(pred, target[0], num_classes)
+            avg_time = total_time / num_it
+            summary_callback(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path)
+            total_time = 0.0
+            num_it = 0
+
+
+def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path):
+    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {l.item()}  mIoU: {iou_score}",
+          file=log_file)
+    save_summary_plot(raw, target, seeds, diffusivities, output, mask, args.subsampling_ratio,
+                      it, iou_score, save_path)
+
+
 if __name__ == '__main__':
     args = parse_args()
 
@@ -54,7 +112,6 @@ if __name__ == '__main__':
                                              subsampling_ratio=args.subsampling_ratio, split="train")
     raw, target, mask = train_dataset[args.img_idx]
     target = target.unsqueeze(0)
-
     num_classes = len(np.unique(target))
 
     # Define sparse mask for the loss
@@ -65,55 +122,6 @@ if __name__ == '__main__':
     # Generate seeds
     seeds = sample_seeds(args.seeds_per_region, target, masked_targets, mask_x, mask_y, num_classes)
 
-    print(f"\n Gradient Pruned: {args.rw_max_backprop}, Subsampling ratio: {args.subsampling_ratio}", file=log_file)
-
-    # Init the UNet
-    unet = UNet(1, 32, 3)
-
-    # Init the random walker modules
-    rw = RandomWalker(args.rw_num_grad, max_backprop=args.rw_max_backprop)
-
-    # Init optimizer
-    optimizer = torch.optim.AdamW(unet.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-
-    # Loss has to been wrapped in order to work with random walker algorithm
-    loss = NHomogeneousBatchLoss(torch.nn.NLLLoss)
-
-    # Main overfit loop
-    total_time = 0.0
-    num_it = 0
-    for it in tqdm(range(iterations + 1)):
-        t1 = time.time()
-        optimizer.zero_grad()
-
-        diffusivities = unet(raw.unsqueeze(0))
-
-        # Diffusivities must be positive
-        net_output = torch.sigmoid(diffusivities)
-
-        # Random walker
-        output = rw(net_output, seeds)
-
-        # Loss and diffusivities update
-        output_log = [torch.log(o + 1e-10)[:, :, mask_x, mask_y] for o in output]
-
-        l = loss(output_log, target[:, :, mask_x, mask_y])
-
-        l.backward(retain_graph=True)
-        optimizer.step()
-
-        t2 = time.time()
-        total_time += t2-t1
-        num_it += 1
-
-        # Summary
-        if it % 5 == 0:
-            pred = torch.argmax(output[0], dim=1)
-            iou_score = compute_iou(pred, target[0], num_classes)
-            avg_time = total_time / num_it
-            print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {l.item()}  mIoU: {iou_score}",
-                  file=log_file)
-            save_summary_plot(raw, target, seeds, diffusivities, output, mask, args.subsampling_ratio,
-                              it, iou_score, save_path)
-            total_time = 0.0
-            num_it = 0
+    # Run transductive experiment
+    run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, summary_callback=transductive_summary,
+                                model_path=args.load)

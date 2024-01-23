@@ -1,27 +1,27 @@
 import os
+import torch
 import logging
 import argparse
+import numpy as np
 import torch.nn as nn
 import time
+
 from tqdm import tqdm
+from typing import Dict
 from pathlib import Path
+from datetime import datetime
 from torchinfo import summary
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from data.cremi_dataloader import CremiSegmentationDataset
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
 from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
-import numpy as np
 
-import torch
 from unet.unet import UNet
-from randomwalker.RandomWalkerModule import RandomWalker
-
 from utils.seed_utils import sample_seeds
 from utils.evaluation_utils import compute_iou
 from utils.plotting_utils import save_summary_plot
-from typing import Dict
+from randomwalker.RandomWalkerModule import RandomWalker
 
 
 MODEL_SAVE_DIR = Path('checkpoints/models')
@@ -83,8 +83,8 @@ class Trainer:
             min_delta=options['min_delta']
         )
 
-        self.rw = RandomWalker(options.get('rw_num_grad', 1000),
-                               max_backprop=options.get('rw_max_backprop', True))
+        self.rw = RandomWalker(options.get('sampled_gradients', 1000),
+                               max_backprop=options.get('gradient_pruning', True))
 
     def _process_epoch(self, dataloader: DataLoader, phase: str, epoch_index: int):
         is_training = (phase == "train")
@@ -274,8 +274,8 @@ def main(args):
         subsampling_ratio=args.subsampling_ratio,
         seeds_per_region=args.seeds_per_region,
         diffusivity_threshold=args.diffusivity_threshold,
-        rw_num_grad=args.rw_num_grad,
-        rw_max_backprop=args.rw_max_backprop
+        sampled_gradients=args.sampled_gradients,
+        gradient_pruning=args.gradient_pruning
     )
 
     # Create checkpoints folder
@@ -307,9 +307,10 @@ def get_base_parser(description):
                         help='Weight decay')
     parser.add_argument('--diffusivity-threshold', dest="diffusivity_threshold", type=float, default=False,
                         help='Diffusivity threshold')
-    parser.add_argument('--rw-num-grad', dest="rw_num_grad", type=int, default=1000,
+    parser.add_argument('--sampled-gradients', dest="sampled_gradients", type=int, default=1000,
                         help='Number of sampled gradients for Random Walker backprop')
-    parser.add_argument('--rw-max-backprop', dest="rw_max_backprop", type=bool, default=True,
+    parser.add_argument('--gradient-pruning', dest="gradient_pruning", type=bool, default=True,
+                        action=argparse.BooleanOptionalAction,
                         help='Whether to use gradient pruning in Random Walker backprop')
     parser.add_argument('--subsampling-ratio', dest="subsampling_ratio", type=float, default=0.01,
                         help='Subsampling ratio')
@@ -345,8 +346,8 @@ if __name__ == "__main__":
     logging.info(f"Min delta: {args.min_delta}")
     logging.info(f"Load model path: {args.load}")
     logging.info(f"Diffusivity threshold: {args.diffusivity_threshold}")
-    logging.info(f"Number of sampled gradients: {args.rw_num_grad}")
-    logging.info(f"Using gradient pruning: {args.rw_max_backprop}")
+    logging.info(f"Number of sampled gradients: {args.sampled_gradients}")
+    logging.info(f"Using gradient pruning: {args.gradient_pruning}")
     logging.info(f"Subsampling Ratio: {args.subsampling_ratio}")
     logging.info(f"Seeds per Region: {args.seeds_per_region}")
     logging.info(f"Image resolution: {args.resolution}")
