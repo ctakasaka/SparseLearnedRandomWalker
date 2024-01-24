@@ -15,6 +15,7 @@ from torchinfo import summary
 from argparse import Namespace
 from torchvision import transforms
 from torch.utils.data import DataLoader
+from orion.client import report_objective
 from data.cremi_dataloader import CremiSegmentationDataset
 from randomwalker.randomwalker_loss_utils import NHomogeneousBatchLoss
 from torch.utils.tensorboard import SummaryWriter
@@ -70,6 +71,7 @@ class Trainer:
         self.loss_fn = loss_fn
         self.optimizer = optimizer
         self.options = options
+        self.should_log_results = options['logging']
 
         # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.device = 'cpu'
@@ -151,7 +153,7 @@ class Trainer:
                 t2 = time.time()
                 total_time += t2-t1
                 num_it += 1
-                if it % 10 == 0 or phase == "test":
+                if self.should_log_results and (it % 10 == 0 or phase == "test"):
                     avg_time = total_time / num_it
                     print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss.item()}  mIoU: {iou_score}",
                           file=log_file)
@@ -209,6 +211,7 @@ class Trainer:
         # Save last model checkpoint
         model_path = MODEL_SAVE_DIR / f'last_model_{self.timestamp}_{epoch_index}'
         torch.save(self.model.state_dict(), model_path)
+        report_objective(-best_valid_iou)
 
     def test(self):
         epoch_index = 0
@@ -220,6 +223,7 @@ class Trainer:
 
         logging.info(f'Losses - test: {test_loss}')
         logging.info(f'IoUs - test: {test_iou}')
+        report_objective(-test_iou)
 
 
 def main(args):
@@ -249,7 +253,7 @@ def main(args):
     test_dataloader = DataLoader(test_dataset, shuffle=False, **loader_args)
 
     # Create model, load from state (is possible) and log model summary
-    model = UNet(1, 32, 3)
+    model = UNet(1, args.unet_channels, args.unet_blocks)
     if args.load:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         state_dict = torch.load(args.load, map_location=device)
@@ -270,6 +274,7 @@ def main(args):
 
     # Create options dict
     options = dict(
+        logging=args.logging,
         max_epochs=args.max_epochs if not args.test else 1,
         patience=args.patience,
         min_delta=args.min_delta,
@@ -277,7 +282,7 @@ def main(args):
         seeds_per_region=args.seeds_per_region,
         diffusivity_threshold=args.diffusivity_threshold,
         sampled_gradients=args.sampled_gradients,
-        gradient_pruning=args.gradient_pruning
+        gradient_pruning=args.gradient_pruning 
     )
 
     # Create checkpoints folder
@@ -303,11 +308,18 @@ def main(args):
 def get_base_parser(description):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--config', help="Config file to parse (in yaml format).")
+    parser.add_argument('--logging',type=bool, default=True,
+                        action=argparse.BooleanOptionalAction,
+                        help='Whether to plot and log results')
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--weight-decay', dest='weight_decay', type=float, default=1e-2,
                         help='Weight decay')
+    parser.add_argument('--unet-channels', dest='unet_channels', type=int, default=64,
+                        help='Number of hidden channels for U-net')
+    parser.add_argument('--unet-blocks', dest='unet_blocks', type=int, default=4,
+                        help='Number of encoder-decoder blocks for U-net')
     parser.add_argument('--diffusivity-threshold', dest="diffusivity_threshold", type=float, default=False,
                         help='Diffusivity threshold')
     parser.add_argument('--sampled-gradients', dest="sampled_gradients", type=int, default=1000,
@@ -334,11 +346,12 @@ def parse_args():
                         help='Evaluates model on test dataset')
     args = parser.parse_args()
 
-    with open(args.config, "r") as stream:
-        config_params = yaml.load(stream, Loader=yaml.FullLoader)
-        args_dict = vars(args)
-        args_dict.update(config_params)
-        args = Namespace(**args_dict)
+    if args.config is not None:
+        with open(args.config, "r") as stream:
+            config_params = yaml.load(stream, Loader=yaml.FullLoader)
+            args_dict = vars(args)
+            args_dict.update(config_params)
+            args = Namespace(**args_dict)
 
     return args
 
@@ -349,10 +362,14 @@ if __name__ == "__main__":
     args = parse_args()
 
     # Log the hyperparameters
+    logging.info(f"Config: {args.config}")
+    logging.info(f"Logging: {args.logging}")
     logging.info(f"Max epochs: {args.max_epochs}")
     logging.info(f"Batch size: {args.batch_size}")
     logging.info(f"Learning rate: {args.lr}")
     logging.info(f"Weight decay: {args.weight_decay}")
+    logging.info(f"UNet channels: {args.unet_channels}")
+    logging.info(f"UNet blocks: {args.unet_blocks}")
     logging.info(f"Patience: {args.patience}")
     logging.info(f"Min delta: {args.min_delta}")
     logging.info(f"Load model path: {args.load}")

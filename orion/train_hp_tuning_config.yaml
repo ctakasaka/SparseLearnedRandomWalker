@@ -1,0 +1,24 @@
+# EXPERIMENT ARGS
+test: false
+logging: false
+subsampling_ratio: 0.01
+seeds_per_region: 5
+resolution: 256
+
+# MODEL ARGS
+unet_channels: 'orion~choices([32, 64, 128])'
+unet_blocks: 'orion~choices([2, 3, 4])'
+
+# TRAINER ARGS
+max_epochs: 10
+batch_size: 1
+patience: 3
+min_delta: 0.001
+lr: 'orion~loguniform(0.00001, 0.1)'
+weight_decay: 'orion~loguniform(0.00001, 0.1)'
+sampled_gradients: 1000
+gradient_pruning: true
+
+# MODEL ARGS
+# diffusivity_threshold: None
+# load:

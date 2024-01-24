@@ -25,17 +25,18 @@ def parse_args():
 
     args = parser.parse_args()
 
-    with open(args.config, "r") as stream:
-        config_params = yaml.load(stream, Loader=yaml.FullLoader)
-        args_dict = vars(args)
-        args_dict.update(config_params)
-        args = Namespace(**args_dict)
+    if args.config is not None:
+        with open(args.config, "r") as stream:
+            config_params = yaml.load(stream, Loader=yaml.FullLoader)
+            args_dict = vars(args)
+            args_dict.update(config_params)
+            args = Namespace(**args_dict)
 
     return args
 
 def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, summary_callback=None, model_path=False):
     # Init the UNet
-    unet = UNet(1, 32, 3)
+    unet = UNet(1, args.unet_channels, args.unet_blocks)
     if model_path:
         unet.load_state_dict(torch.load(model_path))
 

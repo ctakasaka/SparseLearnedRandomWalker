@@ -18,11 +18,12 @@ def parse_args():
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
     args = parser.parse_args()
 
-    with open(args.config, "r") as stream:
-        config_params = yaml.load(stream, Loader=yaml.FullLoader)
-        args_dict = vars(args)
-        args_dict.update(config_params)
-        args = Namespace(**args_dict)
+    if args.config is not None:
+        with open(args.config, "r") as stream:
+            config_params = yaml.load(stream, Loader=yaml.FullLoader)
+            args_dict = vars(args)
+            args_dict.update(config_params)
+            args = Namespace(**args_dict)
 
     return args
 
