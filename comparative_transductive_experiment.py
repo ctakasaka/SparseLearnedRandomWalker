@@ -1,4 +1,6 @@
 import os
+import yaml
+from argparse import Namespace
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -14,8 +16,15 @@ from utils.plotting_utils import (plot_ground_truth, plot_horizontal_diffusiviti
 def parse_args():
     parser = get_base_parser(description='Train and compare on a single neuronal image')
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
+    args = parser.parse_args()
 
-    return parser.parse_args()
+    with open(args.config, "r") as stream:
+        config_params = yaml.load(stream, Loader=yaml.FullLoader)
+        args_dict = vars(args)
+        args_dict.update(config_params)
+        args = Namespace(**args_dict)
+
+    return args
 
 
 if __name__ == '__main__':

@@ -18,5 +18,6 @@ dependencies:
   - torchinfo
   - torchvision
   - tqdm
+  - pyyaml
   - pip:
       - xxhash

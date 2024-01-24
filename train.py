@@ -5,12 +5,14 @@ import argparse
 import numpy as np
 import torch.nn as nn
 import time
+import yaml
 
 from tqdm import tqdm
 from typing import Dict
 from pathlib import Path
 from datetime import datetime
 from torchinfo import summary
+from argparse import Namespace
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from data.cremi_dataloader import CremiSegmentationDataset
@@ -300,6 +302,7 @@ def main(args):
 
 def get_base_parser(description):
     parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('--config', help="Config file to parse (in yaml format).")
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
@@ -329,7 +332,15 @@ def parse_args():
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
     parser.add_argument('--test', type=bool, action=argparse.BooleanOptionalAction, default=False,
                         help='Evaluates model on test dataset')
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    with open(args.config, "r") as stream:
+        config_params = yaml.load(stream, Loader=yaml.FullLoader)
+        args_dict = vars(args)
+        args_dict.update(config_params)
+        args = Namespace(**args_dict)
+
+    return args
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@ from unet.unet import UNet
 from utils.evaluation_utils import compute_iou
 import time
 import os
+import yaml
+from argparse import Namespace
 
 from tqdm import tqdm
 
@@ -21,8 +23,15 @@ def parse_args():
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
 
-    return parser.parse_args()
+    args = parser.parse_args()
 
+    with open(args.config, "r") as stream:
+        config_params = yaml.load(stream, Loader=yaml.FullLoader)
+        args_dict = vars(args)
+        args_dict.update(config_params)
+        args = Namespace(**args_dict)
+
+    return args
 
 def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, summary_callback=None, model_path=False):
     # Init the UNet
@@ -84,6 +93,12 @@ def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, av
 
 if __name__ == '__main__':
     args = parse_args()
+
+    with open(args.config, "r") as stream:
+        config_params = yaml.load(stream, Loader=yaml.FullLoader)
+        args_dict = vars(args)
+        args_dict.update(config_params)
+        args = Namespace(**args_dict)
 
     save_path = f"transductive-image-{args.img_idx}-seeds-{args.seeds_per_region}"
     if not os.path.exists(save_path):
