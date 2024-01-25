@@ -8,6 +8,7 @@ import time
 import os
 import yaml
 from argparse import Namespace
+from orion.client import report_objective
 
 from tqdm import tqdm
 
@@ -15,11 +16,12 @@ from torchvision import transforms
 from data.cremi_dataloader import CremiSegmentationDataset
 from utils.seed_utils import sample_seeds
 from utils.plotting_utils import save_summary_plot
-from train import get_base_parser
+from train import get_base_parser, EarlyStopper
 
 
 def parse_args():
     parser = get_base_parser(description='Train on a single neuronal image')
+    parser.add_argument('--all', type=bool, default=False)
     parser.add_argument('--image-index', dest='img_idx', type=int, default=0)
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
 
@@ -33,6 +35,7 @@ def parse_args():
             args = Namespace(**args_dict)
 
     return args
+
 
 def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, summary_callback=None, model_path=False):
     # Init the UNet
@@ -49,9 +52,15 @@ def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, s
     # Loss has to been wrapped in order to work with random walker algorithm
     loss_fn = NHomogeneousBatchLoss(torch.nn.NLLLoss)
 
+    early_stopper = EarlyStopper(
+        patience=args.patience,
+        min_delta=args.min_delta
+    )
+
     # Main overfit loop
     total_time = 0.0
     num_it = 0
+    iou_score = -np.inf
     for it in tqdm(range(iterations + 1)):
         t1 = time.time()
         optimizer.zero_grad()
@@ -68,6 +77,16 @@ def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, s
         output_log = [torch.log(o)[:, :, mask_x, mask_y] for o in output]
 
         l = loss_fn(output_log, target[:, :, mask_x, mask_y])
+        if early_stopper.should_early_stop(-l.item()):
+            print(f'Early stopping condition triggered at iteration {it}. Training terminated.')
+            pred = torch.argmax(output[0], dim=1)
+            iou_score = compute_iou(pred, target[0], num_classes)
+            avg_time = total_time / num_it
+            if summary_callback is not None:
+                summary_callback(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path)
+            report_objective(-iou_score)
+            return iou_score
+
         l.backward(retain_graph=True)
         optimizer.step()
 
@@ -75,14 +94,17 @@ def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, s
         total_time += t2 - t1
         num_it += 1
 
+        pred = torch.argmax(output[0], dim=1)
+        iou_score = compute_iou(pred, target[0], num_classes)
+
         # Summary
         if it % 5 == 0 and summary_callback is not None:
-            pred = torch.argmax(output[0], dim=1)
-            iou_score = compute_iou(pred, target[0], num_classes)
             avg_time = total_time / num_it
             summary_callback(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path)
             total_time = 0.0
             num_it = 0
+
+    return iou_score
 
 
 def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path):
@@ -95,13 +117,7 @@ def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, av
 if __name__ == '__main__':
     args = parse_args()
 
-    with open(args.config, "r") as stream:
-        config_params = yaml.load(stream, Loader=yaml.FullLoader)
-        args_dict = vars(args)
-        args_dict.update(config_params)
-        args = Namespace(**args_dict)
-
-    save_path = f"transductive-image-{args.img_idx}-seeds-{args.seeds_per_region}"
+    save_path = f"transductive-{'all' if args.all else args.img_idx}-seeds-{args.seeds_per_region}"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     log_file = open(f"{save_path}/log.txt", "a+")
@@ -123,21 +139,30 @@ if __name__ == '__main__':
     ])
 
     # loading in dataset
-    train_dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms,
-                                             target_transform=target_transforms,
-                                             subsampling_ratio=args.subsampling_ratio, split="train")
-    raw, target, mask = train_dataset[args.img_idx]
-    target = target.unsqueeze(0)
-    num_classes = len(np.unique(target))
+    dataset = CremiSegmentationDataset("data/sample_A_20160501.hdf", transform=raw_transforms,
+                                       target_transform=target_transforms,
+                                       subsampling_ratio=args.subsampling_ratio, split="all")
 
-    # Define sparse mask for the loss
-    mask = mask.squeeze()
-    mask_x, mask_y = mask.nonzero(as_tuple=True)
-    masked_targets = target.squeeze()[mask_x, mask_y]
+    iou_list = []
+    for i in range(len(dataset)):
+        if not args.all and i != args.img_idx:
+            continue
 
-    # Generate seeds
-    seeds = sample_seeds(args.seeds_per_region, target, masked_targets, mask_x, mask_y, num_classes)
+        raw, target, mask = dataset[i]
+        target = target.unsqueeze(0)
+        num_classes = len(np.unique(target))
 
-    # Run transductive experiment
-    run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, summary_callback=transductive_summary,
-                                model_path=args.load)
+        # Define sparse mask for the loss
+        mask = mask.squeeze()
+        mask_x, mask_y = mask.nonzero(as_tuple=True)
+        masked_targets = target.squeeze()[mask_x, mask_y]
+
+        # Generate seeds
+        seeds = sample_seeds(args.seeds_per_region, target, masked_targets, mask_x, mask_y, num_classes)
+
+        # Run transductive experiment
+        iou = run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes,
+                                            summary_callback=transductive_summary,
+                                            model_path=args.load)
+        iou_list.append(iou)
+        print(f"Image {i} - mIoU: {iou}")

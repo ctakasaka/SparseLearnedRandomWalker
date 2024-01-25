@@ -31,20 +31,20 @@ MODEL_SAVE_DIR = Path('checkpoints/models')
 
 
 class EarlyStopper:
-    """Early stopping based on validation performance."""
+    """Early stopping based on validation performance. Seeks to maximize the metric (if minimizing, pass -metric)."""
     def __init__(self, patience=1, min_delta=0):
         """Init method."""
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0
-        self.max_iou = 0.
+        self.max_metric = -np.inf
 
-    def should_early_stop(self, iou: float) -> bool:
+    def should_early_stop(self, metric: float) -> bool:
         """Determine if early stopping criterion is met."""
-        if iou > self.max_iou:
-            self.max_iou = iou
+        if metric > self.max_metric:
+            self.max_metric = metric
             self.counter = 0
-        elif iou <= (self.max_iou - self.min_delta):
+        elif metric <= (self.max_metric - self.min_delta):
             self.counter += 1
             if self.counter >= self.patience:
                 return True
@@ -333,14 +333,14 @@ def get_base_parser(description):
                         help='Image resolution')
     parser.add_argument('--seeds-per-region', dest="seeds_per_region", type=int, default=5,
                         help='Seeds per Region')
+    parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
+    parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3,
+                        help='Early stopping min delta')
     return parser
 
 
 def parse_args():
     parser = get_base_parser(description='Train the segmentation model on images and target masks')
-    parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')
-    parser.add_argument('--min-delta', dest='min_delta', type=float, default=1e-3,
-                        help='Early stopping min delta')
     parser.add_argument('--load', type=str, default=False, help='Load model from a .pth file')
     parser.add_argument('--test', type=bool, action=argparse.BooleanOptionalAction, default=False,
                         help='Evaluates model on test dataset')

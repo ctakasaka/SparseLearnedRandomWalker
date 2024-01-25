@@ -31,6 +31,8 @@ class CremiSegmentationDataset(Dataset):
         elif self.split == "test":
             self.raw = self.raw[int(0.9 * num_slices):]
             self.seg = self.seg[int(0.9 * num_slices):]
+        elif self.split != "all":
+            raise ValueError(f"Unknown split {self.split}. Must be 'train', 'validation', 'test' or 'all'.")
 
         if self.transform:
             self.raw = self.transform(self.raw)
