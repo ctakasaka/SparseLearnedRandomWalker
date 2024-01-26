@@ -39,3 +39,11 @@ def sample_seeds(seeds_per_region, target, masked_target, mask_x, mask_y, num_cl
     seeds[mask_x[seed_indices], mask_y[seed_indices]] = target_seeds
     seeds = seeds.unsqueeze(0)
     return seeds
+
+
+def get_all_seeds(target, mask_x, mask_y):
+    seeds = torch.zeros_like(target.squeeze())
+    target_seeds = target.squeeze()[mask_x, mask_y] + 1
+    seeds[mask_x, mask_y] = target_seeds
+    seeds = seeds.unsqueeze(0)
+    return seeds

@@ -8,13 +8,12 @@ import time
 import os
 import yaml
 from argparse import Namespace
-from orion.client import report_objective
 
 from tqdm import tqdm
 
 from torchvision import transforms
 from data.cremi_dataloader import CremiSegmentationDataset
-from utils.seed_utils import sample_seeds
+from utils.seed_utils import sample_seeds, get_all_seeds
 from utils.plotting_utils import save_summary_plot
 from train import get_base_parser, EarlyStopper
 
@@ -37,7 +36,8 @@ def parse_args():
     return args
 
 
-def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, summary_callback=None, model_path=False):
+def run_transductive_experiment(args, raw, target, seeds, mask_x, mask_y, num_classes, save_path, 
+                                summary_callback=None, model_path=False):
     # Init the UNet
     unet = UNet(1, args.unet_channels, args.unet_blocks)
     if model_path:
@@ -79,12 +79,15 @@ def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, s
         l = loss_fn(output_log, target[:, :, mask_x, mask_y])
         if early_stopper.should_early_stop(-l.item()):
             print(f'Early stopping condition triggered at iteration {it}. Training terminated.')
+
+            # Compute final predictions using all seeds
+            all_seeds = get_all_seeds(target, mask_x, mask_y)
+            output = rw(diffusivities, all_seeds)
             pred = torch.argmax(output[0], dim=1)
             iou_score = compute_iou(pred, target[0], num_classes)
             avg_time = total_time / num_it
             if summary_callback is not None:
-                summary_callback(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path)
-            report_objective(-iou_score)
+                summary_callback(raw, all_seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, save_path)
             return iou_score
 
         l.backward(retain_graph=True)
@@ -94,20 +97,17 @@ def run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes, s
         total_time += t2 - t1
         num_it += 1
 
-        pred = torch.argmax(output[0], dim=1)
-        iou_score = compute_iou(pred, target[0], num_classes)
-
-        # Summary
-        if it % 5 == 0 and summary_callback is not None:
-            avg_time = total_time / num_it
-            summary_callback(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path)
-            total_time = 0.0
-            num_it = 0
-
+    all_seeds = get_all_seeds(target, mask_x, mask_y)
+    output = rw(diffusivities, all_seeds)
+    pred = torch.argmax(output[0], dim=1)
+    iou_score = compute_iou(pred, target[0], num_classes)
+    if summary_callback is not None:
+        avg_time = total_time / num_it
+        summary_callback(raw, all_seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, save_path)
     return iou_score
 
 
-def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, model_path):
+def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, save_path, model_path=False):
     print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {l.item()}  mIoU: {iou_score}",
           file=log_file)
     save_summary_plot(raw, target, seeds, diffusivities, output, mask, args.subsampling_ratio,
@@ -117,7 +117,7 @@ def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, av
 if __name__ == '__main__':
     args = parse_args()
 
-    save_path = f"transductive-{'all' if args.all else args.img_idx}-seeds-{args.seeds_per_region}"
+    save_path = f"{args.experiment_name}-{'all' if args.all else args.img_idx}-seeds-{args.seeds_per_region}"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     log_file = open(f"{save_path}/log.txt", "a+")
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     for i in range(len(dataset)):
         if not args.all and i != args.img_idx:
             continue
-
+        print(f"Starting transductive traning on image {i} / {len(dataset)}")
         raw, target, mask = dataset[i]
         target = target.unsqueeze(0)
         num_classes = len(np.unique(target))
@@ -161,8 +161,12 @@ if __name__ == '__main__':
         seeds = sample_seeds(args.seeds_per_region, target, masked_targets, mask_x, mask_y, num_classes)
 
         # Run transductive experiment
-        iou = run_transductive_experiment(args, raw, seeds, mask_x, mask_y, num_classes,
+        iou = run_transductive_experiment(args, raw, target, seeds, mask_x, mask_y, num_classes,
+                                            save_path=f"{save_path}/img_{i}",
                                             summary_callback=transductive_summary,
                                             model_path=args.load)
         iou_list.append(iou)
         print(f"Image {i} - mIoU: {iou}")
+    print(f"List of mIoU per image: {iou_list}")
+    print(f"Average of mIoU: {np.mean(iou_list)}")
+    print(f"Std of mIoU: {np.std(iou_list)}")

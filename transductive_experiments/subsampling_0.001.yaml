@@ -1,0 +1,21 @@
+# EXPERIMENT ARGS
+experiment_name: subsampling_0.001
+all: true
+logging: true
+subsampling_ratio: 0.001
+seeds_per_region: 3
+resolution: 256
+
+# MODEL ARGS
+unet_channels: 32
+unet_blocks: 4
+
+# TRAINER ARGS
+max_epochs: 40
+batch_size: 1
+patience: 3
+min_delta: 0.001
+lr: 0.001
+weight_decay: 0.01
+sampled_gradients: 100
+gradient_pruning: false

@@ -311,6 +311,7 @@ def get_base_parser(description):
     parser.add_argument('--logging',type=bool, default=True,
                         action=argparse.BooleanOptionalAction,
                         help='Whether to plot and log results')
+    parser.add_argument('--experiment-name', type=str, default='experiment', help='Experiment name')
     parser.add_argument('--max-epochs', type=int, default=40, help='Maximum number of epochs')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--lr', dest='lr', type=float, default=1e-3, help='Learning rate')
