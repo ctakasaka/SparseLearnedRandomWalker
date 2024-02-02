@@ -47,11 +47,10 @@ class DecoderBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.conv_block = ConvBlock(in_channels, out_channels)
-        self.up_conv = nn.ConvTranspose2d(
-            in_channels=in_channels,
-            out_channels=in_channels // 2,
-            kernel_size=2,
-            stride=2
+        self.up_conv = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(in_channels, in_channels // 2, kernel_size=3)
         )
 
     def forward(self, h: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
