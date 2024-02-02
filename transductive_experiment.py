@@ -36,13 +36,13 @@ def parse_args():
     return args
 
 
-def run_baseline_experiment(raw, target, mask_x, mask_y, num_classes, save_path, summary_callback=None):
+def run_baseline_experiment(raw, target, mask_x, mask_y, num_classes, save_path, threshold=0.6, summary_callback=None):
     # Init the random walker module (just for forward, backprop will not be used)
     rw = RandomWalker(0, max_backprop=False)
 
     threshold_diffusivities = raw[0] / torch.max(raw)
-    threshold_diffusivities[threshold_diffusivities < 0.6] = 1e-5
-    threshold_diffusivities[threshold_diffusivities > 0.6] = 1
+    threshold_diffusivities[threshold_diffusivities < threshold] = 1e-5
+    threshold_diffusivities[threshold_diffusivities > threshold] = 1
 
     diffusivities = torch.stack([threshold_diffusivities, threshold_diffusivities]).unsqueeze(0)
 
@@ -55,6 +55,22 @@ def run_baseline_experiment(raw, target, mask_x, mask_y, num_classes, save_path,
     if summary_callback is not None:
         summary_callback(raw, seeds, mask, diffusivities, pred, target, 0, 0.0, 0.0, iou_score, save_path, False)
     return iou_score
+
+
+def run_best_baseline_experiment(raw, target, mask_x, mask_y, num_classes, thresholds, save_path, summary_callback=None):
+    iou_list = []
+    for threshold in thresholds:
+        iou = run_baseline_experiment(raw, target, mask_x, mask_y, num_classes, save_path, threshold=threshold)
+        iou_list.append(iou)
+    print(iou_list)
+    best_iou = max(iou_list)
+    best_threshold = thresholds[np.argmax(iou_list)]
+    print(f"Best threshold: {best_threshold} - Best mIoU: {best_iou}")
+
+    # Get summary plot for best mIoU threshold
+    run_baseline_experiment(raw, target, mask_x, mask_y, num_classes, save_path, threshold=best_threshold,
+                            summary_callback=summary_callback)
+    return best_iou
 
 
 def run_transductive_experiment(args, raw, target, seeds, mask_x, mask_y, num_classes, save_path, 
@@ -188,9 +204,10 @@ if __name__ == '__main__':
                                             save_path=f"{save_path}/img_{i}",
                                             summary_callback=transductive_summary,
                                             model_path=args.load)
-        baseline_iou = run_baseline_experiment(raw, target, mask_x, mask_y, num_classes,
-                                               save_path=f"{save_path}/baseline_img_{i}",
-                                               summary_callback=transductive_summary)
+        baseline_iou = run_best_baseline_experiment(raw, target, mask_x, mask_y, num_classes,
+                                                    [0.45, 0.5, 0.55, 0.6, 0.65],
+                                                    save_path=f"{save_path}/baseline_img_{i}",
+                                                    summary_callback=transductive_summary)
         iou_list.append(iou)
         baseline_list.append(baseline_iou)
         print(f"Image {i} - mIoU: {iou} - baseline mIoU: {baseline_iou}")
