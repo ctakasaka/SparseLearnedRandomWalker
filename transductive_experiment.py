@@ -36,6 +36,27 @@ def parse_args():
     return args
 
 
+def run_baseline_experiment(raw, target, mask_x, mask_y, num_classes, save_path, summary_callback=None):
+    # Init the random walker module (just for forward, backprop will not be used)
+    rw = RandomWalker(0, max_backprop=False)
+
+    threshold_diffusivities = raw[0] / torch.max(raw)
+    threshold_diffusivities[threshold_diffusivities < 0.6] = 1e-5
+    threshold_diffusivities[threshold_diffusivities > 0.6] = 1
+
+    diffusivities = torch.stack([threshold_diffusivities, threshold_diffusivities]).unsqueeze(0)
+
+    # Random walker
+    seeds = get_all_seeds(target, mask_x, mask_y)
+    output = rw(diffusivities, seeds)
+
+    pred = torch.argmax(output[0], dim=1)
+    iou_score = compute_iou(pred, target[0], num_classes)
+    if summary_callback is not None:
+        summary_callback(raw, seeds, mask, diffusivities, pred, target, 0, 0.0, 0.0, iou_score, save_path, False)
+    return iou_score
+
+
 def run_transductive_experiment(args, raw, target, seeds, mask_x, mask_y, num_classes, save_path, 
                                 summary_callback=None, model_path=False):
     # Init the UNet
@@ -87,7 +108,7 @@ def run_transductive_experiment(args, raw, target, seeds, mask_x, mask_y, num_cl
             iou_score = compute_iou(pred, target[0], num_classes)
             avg_time = total_time / num_it
             if summary_callback is not None:
-                summary_callback(raw, all_seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, save_path)
+                summary_callback(raw, all_seeds, mask, diffusivities, pred, target, it, avg_time, l, iou_score, save_path)
             return iou_score
 
         l.backward(retain_graph=True)
@@ -103,14 +124,15 @@ def run_transductive_experiment(args, raw, target, seeds, mask_x, mask_y, num_cl
     iou_score = compute_iou(pred, target[0], num_classes)
     if summary_callback is not None:
         avg_time = total_time / num_it
-        summary_callback(raw, all_seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, save_path)
+        summary_callback(raw, all_seeds, mask, diffusivities, pred, target, it, avg_time, l, iou_score, save_path)
     return iou_score
 
 
-def transductive_summary(raw, seeds, mask, diffusivities, output, target, it, avg_time, l, iou_score, save_path, model_path=False):
-    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {l.item()}  mIoU: {iou_score}",
+def transductive_summary(raw, seeds, mask, diffusivities, pred, target, it, avg_time, loss, iou_score, save_path,
+                         model_path=False):
+    print(f"Iteration {it}  Time/iteration(s): {avg_time}  Loss: {loss}  mIoU: {iou_score}",
           file=log_file)
-    save_summary_plot(raw, target, seeds, diffusivities, output, mask, args.subsampling_ratio,
+    save_summary_plot(raw, target, seeds, diffusivities, pred, mask, args.subsampling_ratio,
                       it, iou_score, save_path)
 
 
@@ -144,6 +166,7 @@ if __name__ == '__main__':
                                        subsampling_ratio=args.subsampling_ratio, split="all")
 
     iou_list = []
+    baseline_list = []
     for i in range(len(dataset)):
         if not args.all and i != args.img_idx:
             continue
@@ -165,8 +188,16 @@ if __name__ == '__main__':
                                             save_path=f"{save_path}/img_{i}",
                                             summary_callback=transductive_summary,
                                             model_path=args.load)
+        baseline_iou = run_baseline_experiment(raw, target, mask_x, mask_y, num_classes,
+                                               save_path=f"{save_path}/baseline_img_{i}",
+                                               summary_callback=transductive_summary)
         iou_list.append(iou)
-        print(f"Image {i} - mIoU: {iou}")
+        baseline_list.append(baseline_iou)
+        print(f"Image {i} - mIoU: {iou} - baseline mIoU: {baseline_iou}")
     print(f"List of mIoU per image: {iou_list}")
     print(f"Average of mIoU: {np.mean(iou_list)}")
     print(f"Std of mIoU: {np.std(iou_list)}")
+
+    print(f"List of baseline mIoU per image: {baseline_list}")
+    print(f"Average of baseline mIoU: {np.mean(baseline_list)}")
+    print(f"Std of baseline mIoU: {np.std(baseline_list)}")

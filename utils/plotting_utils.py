@@ -14,9 +14,9 @@ def plot_ground_truth(ax, raw, target, seeds, mask=None):
     ax.axis("off")
 
 
-def plot_predictions(ax, raw, output):
+def plot_predictions(ax, raw, pred):
     ax.imshow(raw[0].detach().numpy(), cmap="gray")
-    ax.imshow(np.argmax(output[0][0].detach().numpy(), 0), alpha=0.6, vmin=-3, cmap="prism_r")
+    ax.imshow(pred[0], alpha=0.6, vmin=-3, cmap="prism_r")
     ax.axis("off")
 
 
@@ -30,16 +30,16 @@ def plot_horizontal_diffusivities(ax, diffusivities):
     ax.axis("off")
 
 
-def get_summary_fig(raw, target, seeds, diffusivities, output, mask=None, figsize=(8, 9.5)):
+def get_summary_fig(raw, target, seeds, diffusivities, pred, mask=None, figsize=(8, 9.5)):
     f, axarr = plt.subplots(2, 2, figsize=(8, 9.5))
 
     # Plot ground truth image + mask + seeds
     axarr[0, 0].set_title("Ground Truth + Mask + Seeds")
     plot_ground_truth(axarr[0, 0], raw, target, seeds, mask)
 
-    # Plot output segmentation
+    # Plot pred segmentation
     axarr[0, 1].set_title("SLRW Segmentation Output")
-    plot_predictions(axarr[0, 1], raw, output)
+    plot_predictions(axarr[0, 1], raw, pred)
 
     # Plot vertical diffusivities
     axarr[1, 0].set_title("Vertical Diffusivities")
@@ -52,12 +52,12 @@ def get_summary_fig(raw, target, seeds, diffusivities, output, mask=None, figsiz
     return f, axarr
 
 
-def save_summary_plot(raw, target, seeds, diffusivities, output, mask, subsampling_ratio,
+def save_summary_plot(raw, target, seeds, diffusivities, pred, mask, subsampling_ratio,
                       it, iou_score, save_path):
     """
     This function creates and saves a summary figure
     """
-    f, axarr = get_summary_fig(raw, target, seeds, diffusivities, output, mask)
+    f, axarr = get_summary_fig(raw, target, seeds, diffusivities, pred, mask)
     f.suptitle(f"SLRW summary - Subsampling ratio: {subsampling_ratio} - Iteration: {it} - mIoU: {iou_score}")
 
     plt.tight_layout()
